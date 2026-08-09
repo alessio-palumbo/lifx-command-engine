@@ -66,18 +66,29 @@ type Action struct {
 }
 
 type Capabilities struct {
-	ProtocolVersion   string   `json:"protocol_version"`
-	CommandPlanSchema string   `json:"command_plan_schema"`
-	Methods           []string `json:"methods"`
-	Interpreters      []string `json:"interpreters"`
-	ModelRuntime      string   `json:"model_runtime,omitempty"`
-	Transcription     bool     `json:"transcription"`
-	ExecutesCommands  bool     `json:"executes_commands"`
+	ProtocolVersion     string   `json:"protocol_version"`
+	CommandPlanSchema   string   `json:"command_plan_schema"`
+	Methods             []string `json:"methods"`
+	Interpreters        []string `json:"interpreters"`
+	ModelRuntime        string   `json:"model_runtime,omitempty"`
+	Transcription       bool     `json:"transcription"`
+	TranscriptionSchema string   `json:"transcription_schema,omitempty"`
+	ExecutesCommands    bool     `json:"executes_commands"`
 }
 
 type TranscribeInput struct {
 	AudioPath string `json:"audio_path"`
+	Language  string `json:"language,omitempty"`
 }
 type TranscribeResult struct {
-	Text string `json:"text"`
+	SchemaVersion string              `json:"schema_version"`
+	Text          string              `json:"text"`
+	Language      string              `json:"language,omitempty"`
+	Segments      []TranscribeSegment `json:"segments"`
+}
+
+type TranscribeSegment struct {
+	StartMS int64  `json:"start_ms"`
+	EndMS   int64  `json:"end_ms"`
+	Text    string `json:"text"`
 }

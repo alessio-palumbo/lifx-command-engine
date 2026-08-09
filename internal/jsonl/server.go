@@ -6,11 +6,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
 	"github.com/alessio-palumbo/lifx-command-engine/internal/interpreter"
 	"github.com/alessio-palumbo/lifx-command-engine/internal/schema"
+	"github.com/alessio-palumbo/lifx-command-engine/internal/speech"
 )
 
 const (
@@ -37,6 +39,7 @@ type Error struct {
 
 type Server struct {
 	Interpreter  interpreter.Interpreter
+	Transcriber  speech.Transcriber
 	Capabilities schema.Capabilities
 }
 
@@ -108,6 +111,26 @@ func (s Server) handle(ctx context.Context, line []byte) Response {
 			return fail(req.ID, "invalid_params", err.Error(), nil)
 		}
 		return Response{ID: req.ID, Result: plan}
+	case "transcribe":
+		if s.Transcriber == nil {
+			return fail(req.ID, "method_unavailable", "transcription is not configured", nil)
+		}
+		var input schema.TranscribeInput
+		if len(req.Params) == 0 {
+			return fail(req.ID, "invalid_params", "params are required", nil)
+		}
+		if err := decodeStrict(req.Params, &input); err != nil {
+			return fail(req.ID, "invalid_params", "invalid transcribe params", err.Error())
+		}
+		result, err := s.Transcriber.Transcribe(ctx, input)
+		if err != nil {
+			var invalid *speech.InvalidInputError
+			if errors.As(err, &invalid) {
+				return fail(req.ID, "invalid_params", err.Error(), nil)
+			}
+			return fail(req.ID, "transcription_failed", err.Error(), nil)
+		}
+		return Response{ID: req.ID, Result: result}
 	default:
 		return fail(req.ID, "method_not_found", "unknown method: "+req.Method, nil)
 	}

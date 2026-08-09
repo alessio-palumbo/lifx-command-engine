@@ -37,8 +37,9 @@ Supported methods are:
 - `health` — process readiness.
 - `capabilities` — protocol version, available methods/runtimes, and an explicit `executes_commands: false` guarantee.
 - `interpret` — deterministic text interpretation using a caller-provided snapshot.
+- `transcribe` — optional audio-file transcription when whisper.cpp is configured.
 
-Errors have a stable shape: `{"id":...,"error":{"code":"invalid_params","message":"...","data":...}}`. Current codes are `parse_error`, `invalid_request`, `invalid_params`, `method_not_found`, `request_too_large`, and `unsupported_protocol_version`. JSONL is intentionally used instead of HTTP to keep process lifecycle, local-only access, and embedding simple.
+Errors have a stable shape: `{"id":...,"error":{"code":"invalid_params","message":"...","data":...}}`. Current codes are `parse_error`, `invalid_request`, `invalid_params`, `method_not_found`, `method_unavailable`, `request_too_large`, `transcription_failed`, and `unsupported_protocol_version`. JSONL is intentionally used instead of HTTP to keep process lifecycle, local-only access, and embedding simple.
 
 ## Integration
 
@@ -56,7 +57,7 @@ Tests require no devices or model downloads. Public wire DTOs live in `internal/
 ## Future milestones
 
 - Add a maintained FunctionGemma runtime adapter and domain fine-tuning/evaluation workflow; the runtime-neutral model and hybrid interpreter boundary is now available.
-- Add optional whisper.cpp transcription, starting with an audio file path and adding streaming later.
+- Add streaming transcription and long-lived whisper.cpp runtime support; audio-file transcription is now available.
 - Add explicit model download, cache, version, and integrity management.
 - Add FunctionGemma training, evaluation, and export commands.
 - Consider an optional local HTTP transport without replacing JSONL.
@@ -72,3 +73,21 @@ The rule parser returns immediately at high confidence. Lower-confidence input i
 The engine never downloads a model. FunctionGemma model selection, licensing, fine-tuned weights, tokenizer/chat-template handling, and caches belong to the configured runtime. A runtime should use FunctionGemma's required developer instruction and tool-calling format, then translate its proposed call into the CommandPlan contract supplied in the request's `output_schema` field.
 
 [`testdata/functiongemma-eval.jsonl`](testdata/functiongemma-eval.jsonl) contains the initial runtime/fine-tune evaluation cases, including style language, implicit targets, ambiguity, multi-target commands, unknown targets, and irrelevant requests.
+
+## Optional speech-to-text
+
+Build or install `whisper-cli`, provide an existing local model, and enable transcription explicitly:
+
+```sh
+go run ./cmd/lifx-command-engine \
+  -whisper-command /path/to/whisper-cli \
+  -whisper-model /path/to/ggml-base.en.bin
+```
+
+The engine does not download whisper.cpp or model weights. When configured, `capabilities` advertises `transcription: true` and the `transcribe` method. Input is an audio file path owned by the caller:
+
+```json
+{"id":"speech-1","method":"transcribe","params":{"audio_path":"/path/to/command.wav","language":"en"}}
+```
+
+The versioned result contains normalized text, detected language, and timestamped segments. Audio paths must resolve to regular files. The executable is invoked directly without a shell, JSON is read from an isolated temporary output directory with a size bound, cancellation terminates the child process, and device interpretation remains a separate `interpret` request so hosts can preview each stage independently. Extra whisper.cpp arguments can be supplied with repeatable `-whisper-arg value` flags; for example, use `-whisper-arg=-ng` when whisper.cpp must run without a GPU backend.

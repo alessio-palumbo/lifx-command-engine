@@ -8,7 +8,17 @@ import (
 	"testing"
 
 	"github.com/alessio-palumbo/lifx-command-engine/internal/interpreter"
+	"github.com/alessio-palumbo/lifx-command-engine/internal/schema"
 )
+
+type fakeTranscriber struct {
+	result schema.TranscribeResult
+	err    error
+}
+
+func (f fakeTranscriber) Transcribe(context.Context, schema.TranscribeInput) (schema.TranscribeResult, error) {
+	return f.result, f.err
+}
 
 func TestServerJSONL(t *testing.T) {
 	input := strings.Join([]string{
@@ -78,5 +88,28 @@ func TestServerRejectsOversizedRequestAndContinues(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"request_too_large"`) || !strings.Contains(out.String(), `"status":"ok"`) {
 		t.Fatalf("responses: %s", out.String())
+	}
+}
+
+func TestServerTranscribe(t *testing.T) {
+	input := `{"id":"t","method":"transcribe","params":{"audio_path":"/tmp/voice.wav"}}`
+	var out bytes.Buffer
+	s := Server{Interpreter: interpreter.RuleInterpreter{}, Transcriber: fakeTranscriber{result: schema.TranscribeResult{Text: "desk on", Language: "en", Segments: []schema.TranscribeSegment{}}}}
+	if err := s.Serve(context.Background(), strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"text":"desk on"`) {
+		t.Fatalf("response: %s", out.String())
+	}
+}
+
+func TestServerTranscribeUnavailable(t *testing.T) {
+	input := `{"id":"t","method":"transcribe","params":{"audio_path":"/tmp/voice.wav"}}`
+	var out bytes.Buffer
+	if err := (Server{Interpreter: interpreter.RuleInterpreter{}}).Serve(context.Background(), strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"method_unavailable"`) {
+		t.Fatalf("response: %s", out.String())
 	}
 }
