@@ -91,3 +91,18 @@ The engine does not download whisper.cpp or model weights. When configured, `cap
 ```
 
 The versioned result contains normalized text, detected language, and timestamped segments. Audio paths must resolve to regular files. The executable is invoked directly without a shell, JSON is read from an isolated temporary output directory with a size bound, cancellation terminates the child process, and device interpretation remains a separate `interpret` request so hosts can preview each stage independently. Extra whisper.cpp arguments can be supplied with repeatable `-whisper-arg value` flags; for example, use `-whisper-arg=-ng` when whisper.cpp must run without a GPU backend.
+
+For a microphone-to-command-plan smoke test, install SoX and jq, then run:
+
+```sh
+brew install sox jq
+./scripts/test-voice-command.sh \
+  --serial d073d5000001 \
+  --label Desk \
+  --group Office \
+  --location Home
+```
+
+The `--serial`, `--label`, `--group`, and `--location` flags do not come from the recording. They construct a minimal one-device snapshot representing information that a real host such as Hikari or lifx-dash already owns. Speech supplies a phrase such as “turn desk on”; the snapshot tells the engine that `Desk` exists, how it is grouped, and which stable serial the resulting command should target. The serial must therefore be a real 12-character LIFX serial, while group and location are optional.
+
+The script records for five seconds, transcribes the temporary WAV, feeds the transcript into `interpret` with that snapshot, prints the resulting CommandPlan, and removes the recording. It intentionally models only one device to keep the smoke test small; multi-device inventory testing belongs in host integration tests. The script uses the sibling `whisper.cpp` checkout and `ggml-small.bin` by default. Override them with `WHISPER_COMMAND`, `WHISPER_MODEL`, or `WHISPER_CPP_DIR`; use `--seconds N` to change recording time. Run `./scripts/test-voice-command.sh --help` for flag descriptions.
