@@ -55,10 +55,20 @@ Tests require no devices or model downloads. Public wire DTOs live in `internal/
 
 ## Future milestones
 
-- Add `ModelInterpreter` using FunctionGemma, followed by a rules-first `HybridInterpreter` with confidence-gated fallback. Both must return the same `CommandPlan` schema.
+- Add a maintained FunctionGemma runtime adapter and domain fine-tuning/evaluation workflow; the runtime-neutral model and hybrid interpreter boundary is now available.
 - Add optional whisper.cpp transcription, starting with an audio file path and adding streaming later.
 - Add explicit model download, cache, version, and integrity management.
 - Add FunctionGemma training, evaluation, and export commands.
 - Consider an optional local HTTP transport without replacing JSONL.
 
-The placeholder `Interpreter` and `Transcriber` interfaces define these extension seams; neither runtime is linked or downloaded today.
+The placeholder `Interpreter` and `Transcriber` interfaces define these extension seams; no model runtime is linked or downloaded.
+
+## Optional model fallback
+
+Pass `-model-command /path/to/runtime` to enable the rules-first hybrid interpreter. Arguments can be added with repeatable `-model-arg value` flags. The command is invoked directly without a shell, receives one model request as JSON on stdin, and must return exactly one CommandPlan JSON object on stdout. This supports a local FunctionGemma runner implemented with Transformers, LiteRT-LM, llama.cpp, MLX, or another compatible runtime without linking it into the Go service.
+
+The rule parser returns immediately at high confidence. Lower-confidence input is offered to the configured model command. Every model plan is strictly decoded, range checked, constrained to serials in the caller's snapshot, normalized with trusted snapshot metadata, and marked as requiring confirmation. If the runtime is missing or fails, the original rule plan is returned with a `model fallback unavailable` confidence reason.
+
+The engine never downloads a model. FunctionGemma model selection, licensing, fine-tuned weights, tokenizer/chat-template handling, and caches belong to the configured runtime. A runtime should use FunctionGemma's required developer instruction and tool-calling format, then translate its proposed call into the CommandPlan contract supplied in the request's `output_schema` field.
+
+[`testdata/functiongemma-eval.jsonl`](testdata/functiongemma-eval.jsonl) contains the initial runtime/fine-tune evaluation cases, including style language, implicit targets, ambiguity, multi-target commands, unknown targets, and irrelevant requests.

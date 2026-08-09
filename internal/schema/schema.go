@@ -70,6 +70,7 @@ type Capabilities struct {
 	CommandPlanSchema string   `json:"command_plan_schema"`
 	Methods           []string `json:"methods"`
 	Interpreters      []string `json:"interpreters"`
+	ModelRuntime      string   `json:"model_runtime,omitempty"`
 	Transcription     bool     `json:"transcription"`
 	ExecutesCommands  bool     `json:"executes_commands"`
 }

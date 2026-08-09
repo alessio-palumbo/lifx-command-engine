@@ -35,7 +35,10 @@ type Error struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-type Server struct{ Interpreter interpreter.Interpreter }
+type Server struct {
+	Interpreter  interpreter.Interpreter
+	Capabilities schema.Capabilities
+}
 
 func (s Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReader(in)
@@ -86,7 +89,11 @@ func (s Server) handle(ctx context.Context, line []byte) Response {
 	case "health":
 		return Response{ID: req.ID, Result: map[string]string{"status": "ok"}}
 	case "capabilities":
-		return Response{ID: req.ID, Result: schema.Capabilities{ProtocolVersion: ProtocolVersion, CommandPlanSchema: "1", Methods: []string{"health", "capabilities", "interpret"}, Interpreters: []string{"rules"}, Transcription: false, ExecutesCommands: false}}
+		capabilities := s.Capabilities
+		if capabilities.ProtocolVersion == "" {
+			capabilities = schema.Capabilities{ProtocolVersion: ProtocolVersion, CommandPlanSchema: "1", Methods: []string{"health", "capabilities", "interpret"}, Interpreters: []string{"rules"}, Transcription: false, ExecutesCommands: false}
+		}
+		return Response{ID: req.ID, Result: capabilities}
 	case "interpret":
 		var input schema.InterpretInput
 		if len(req.Params) == 0 {
