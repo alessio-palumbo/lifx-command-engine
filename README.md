@@ -6,7 +6,7 @@ The first milestone uses the deterministic parser from [`lifxlan-go/pkg/command`
 
 ## Protocol
 
-Run `go run ./cmd/lifx-command-engine`. Send one JSON request per line on stdin; receive one JSON response per line on stdout. IDs may be strings or numbers and are echoed unchanged.
+Run `go run ./cmd/lifx-command-engine`. Send one JSON request per line on stdin; receive one JSON response per line on stdout. IDs may be strings or numbers and are echoed unchanged. Requests may include `"protocol_version":"1"`; omitted versions currently mean version 1. Unknown fields, unsupported versions, and lines larger than 1 MiB are rejected.
 
 ```json
 {
@@ -38,7 +38,7 @@ Supported methods are:
 - `capabilities` — protocol version, available methods/runtimes, and an explicit `executes_commands: false` guarantee.
 - `interpret` — deterministic text interpretation using a caller-provided snapshot.
 
-Errors have a stable shape: `{"id":...,"error":{"code":"invalid_params","message":"...","data":...}}`. Current codes are `parse_error`, `invalid_request`, `invalid_params`, and `method_not_found`. JSONL is intentionally used instead of HTTP to keep process lifecycle, local-only access, and embedding simple.
+Errors have a stable shape: `{"id":...,"error":{"code":"invalid_params","message":"...","data":...}}`. Current codes are `parse_error`, `invalid_request`, `invalid_params`, `method_not_found`, `request_too_large`, and `unsupported_protocol_version`. JSONL is intentionally used instead of HTTP to keep process lifecycle, local-only access, and embedding simple.
 
 ## Integration
 

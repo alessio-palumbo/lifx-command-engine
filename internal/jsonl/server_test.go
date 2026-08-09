@@ -52,3 +52,31 @@ func TestServerMalformedAndInvalidParams(t *testing.T) {
 		t.Fatalf("responses: %s", out.String())
 	}
 }
+
+func TestServerRejectsUnknownFieldsAndVersions(t *testing.T) {
+	input := strings.Join([]string{
+		`{"id":1,"method":"health","unexpected":true}`,
+		`{"id":2,"protocol_version":"99","method":"health"}`,
+		`{"id":3,"method":"interpret","params":{"text":"desk on","snapshot":{},"unexpected":true}}`,
+	}, "\n")
+	var out bytes.Buffer
+	if err := (Server{Interpreter: interpreter.RuleInterpreter{}}).Serve(context.Background(), strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, code := range []string{"parse_error", "unsupported_protocol_version", "invalid_params"} {
+		if !strings.Contains(out.String(), `"`+code+`"`) {
+			t.Errorf("missing %s in %s", code, out.String())
+		}
+	}
+}
+
+func TestServerRejectsOversizedRequestAndContinues(t *testing.T) {
+	input := strings.Repeat("x", MaxRequestBytes+1) + "\n" + `{"id":2,"method":"health"}`
+	var out bytes.Buffer
+	if err := (Server{Interpreter: interpreter.RuleInterpreter{}}).Serve(context.Background(), strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), `"request_too_large"`) || !strings.Contains(out.String(), `"status":"ok"`) {
+		t.Fatalf("responses: %s", out.String())
+	}
+}

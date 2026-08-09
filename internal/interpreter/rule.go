@@ -29,8 +29,8 @@ func (RuleInterpreter) Interpret(ctx context.Context, input schema.InterpretInpu
 	}
 	score, result := confidence.Score(input.Text, commands, ambiguousSnapshot(input.Snapshot))
 	return schema.CommandPlan{
-		Confidence: score, ConfidenceResult: result, NeedsConfirmation: score < .9,
-		Summary: summarize(commands), Commands: commands,
+		SchemaVersion: "1", Confidence: score, ConfidenceResult: result,
+		NeedsConfirmation: score < .9, Summary: summarize(commands), Commands: commands,
 	}, nil
 }
 

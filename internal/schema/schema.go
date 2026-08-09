@@ -29,6 +29,7 @@ type InterpretInput struct {
 }
 
 type CommandPlan struct {
+	SchemaVersion     string           `json:"schema_version"`
 	Confidence        float64          `json:"confidence"`
 	ConfidenceResult  ConfidenceResult `json:"confidence_result"`
 	NeedsConfirmation bool             `json:"needs_confirmation"`
@@ -65,11 +66,12 @@ type Action struct {
 }
 
 type Capabilities struct {
-	ProtocolVersion  string   `json:"protocol_version"`
-	Methods          []string `json:"methods"`
-	Interpreters     []string `json:"interpreters"`
-	Transcription    bool     `json:"transcription"`
-	ExecutesCommands bool     `json:"executes_commands"`
+	ProtocolVersion   string   `json:"protocol_version"`
+	CommandPlanSchema string   `json:"command_plan_schema"`
+	Methods           []string `json:"methods"`
+	Interpreters      []string `json:"interpreters"`
+	Transcription     bool     `json:"transcription"`
+	ExecutesCommands  bool     `json:"executes_commands"`
 }
 
 type TranscribeInput struct {
