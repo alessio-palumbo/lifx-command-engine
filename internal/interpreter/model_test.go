@@ -35,6 +35,9 @@ func TestModelInterpreterValidatesAndNormalizesPlan(t *testing.T) {
 	if !strings.Contains(g.request.OutputSchema, "CommandPlan") || len(g.request.Input) == 0 {
 		t.Fatalf("incomplete model request: %#v", g.request)
 	}
+	if g.request.ContractVersion != "1" {
+		t.Fatalf("contract version = %q", g.request.ContractVersion)
+	}
 }
 
 func TestModelInterpreterRejectsUnsafeOutput(t *testing.T) {

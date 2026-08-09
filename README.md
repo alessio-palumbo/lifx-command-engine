@@ -56,7 +56,7 @@ Tests require no devices or model downloads. Public wire DTOs live in `internal/
 
 ## Future milestones
 
-- Add a maintained FunctionGemma runtime adapter and domain fine-tuning/evaluation workflow; the runtime-neutral model and hybrid interpreter boundary is now available.
+- Add domain fine-tuning/export workflows; the Transformers FunctionGemma runtime and evaluation boundary are available.
 - Add streaming transcription and long-lived whisper.cpp runtime support; audio-file transcription is now available.
 - Add explicit model download, cache, version, and integrity management.
 - Add FunctionGemma training, evaluation, and export commands.
@@ -73,6 +73,29 @@ The rule parser returns immediately at high confidence. Lower-confidence input i
 The engine never downloads a model. FunctionGemma model selection, licensing, fine-tuned weights, tokenizer/chat-template handling, and caches belong to the configured runtime. A runtime should use FunctionGemma's required developer instruction and tool-calling format, then translate its proposed call into the CommandPlan contract supplied in the request's `output_schema` field.
 
 [`testdata/functiongemma-eval.jsonl`](testdata/functiongemma-eval.jsonl) contains the initial runtime/fine-tune evaluation cases, including style language, implicit targets, ambiguity, multi-target commands, unknown targets, and irrelevant requests.
+
+### FunctionGemma Transformers runner
+
+The maintained optional runner lives in `runtimes/functiongemma`. It expects an existing local FunctionGemma model directory and defaults to offline loading:
+
+```sh
+python3 -m venv /private/tmp/lifx-functiongemma-venv
+/private/tmp/lifx-functiongemma-venv/bin/pip install \
+  -r runtimes/functiongemma/requirements.txt
+
+go run ./cmd/lifx-command-engine \
+  -model-command "$PWD/runtimes/functiongemma/runner.py" \
+  -model-arg=--model \
+  -model-arg=/path/to/functiongemma-model
+```
+
+The runner uses the model's Transformers chat template and the `propose_lifx_plan` function declaration. It accepts model contract version 1, emits one CommandPlan on stdout, and writes failures to stderr. `--device` accepts `auto`, `cpu`, `cuda`, or `mps`; pass it using additional `-model-arg` flags. The optional runner flag `--allow-download` lets Transformers fetch missing files, but is deliberately disabled by default. Model licensing and access remain the user's responsibility.
+
+Run its dependency-free parser/contract tests with:
+
+```sh
+python3 -m unittest discover -s runtimes/functiongemma -p 'test_*.py' -v
+```
 
 ## Optional speech-to-text
 

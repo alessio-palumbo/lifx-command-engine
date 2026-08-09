@@ -25,6 +25,7 @@ func (m ModelInterpreter) Interpret(ctx context.Context, input schema.InterpretI
 		return schema.CommandPlan{}, fmt.Errorf("encode model input: %w", err)
 	}
 	raw, err := m.Generator.Generate(ctx, model.Request{
+		ContractVersion:      "1",
 		DeveloperInstruction: "Translate the request into a LIFX command plan. Use only serials present in the snapshot. Propose actions only; never execute anything.",
 		Input:                encoded, OutputSchema: planOutputSchema,
 	})
