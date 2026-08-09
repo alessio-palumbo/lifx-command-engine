@@ -12,10 +12,13 @@ from typing import Any
 
 CONTRACT_VERSION = "1"
 CALL_PATTERN = re.compile(
-    r"<start_function_call>call:propose_lifx_plan\s*\{\s*"
-    r"plan_json\s*:\s*<escape>(.*?)<escape>\s*\}"
+    r"<start_function_call>call:set_lifx_state\s*\{(.*?)\}"
     r"<end_function_call>",
     re.DOTALL,
+)
+LIGHTING_WORDS = re.compile(
+    r"\b(light|lights|illuminate|brightness|bright|dim|colour|color|kelvin|warm|cool)\b",
+    re.IGNORECASE,
 )
 
 
@@ -24,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", required=True, help="local FunctionGemma model directory")
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or mps")
     parser.add_argument("--max-new-tokens", type=int, default=512)
+    parser.add_argument("--debug", action="store_true", help="write raw model generation to stderr")
     parser.add_argument(
         "--allow-download",
         action="store_true",
@@ -33,61 +37,120 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def tool_schema(output_schema: str) -> dict[str, Any]:
-    return {
+def tool_schemas(model_input: dict[str, Any]) -> list[dict[str, Any]]:
+    devices = model_input.get("snapshot", {}).get("devices", [])
+    serials = [device["serial"] for device in devices if device.get("serial")]
+    inventory = ", ".join(
+        f"{device.get('label', '')}={device.get('serial', '')}"
+        for device in devices
+    )
+    set_state = {
         "type": "function",
         "function": {
-            "name": "propose_lifx_plan",
+            "name": "set_lifx_state",
             "description": (
-                "Propose, but never execute, a LIFX command plan. The plan_json "
-                "argument must be valid JSON matching this contract: " + output_schema
+                "Propose new power or color state for known LIFX devices. Never "
+                f"execute it. Device inventory: {inventory}"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "plan_json": {
-                        "type": "string",
-                        "description": "Complete CommandPlan encoded as strict JSON.",
-                    }
+                    "target_serials": {
+                        "type": "array", "items": {"type": "string", "enum": serials},
+                        "description": "Exact serials selected from the device inventory."
+                    },
+                    "power": {"type": "string", "enum": ["on", "off", "unchanged"]},
+                    "hue": {"type": "number", "minimum": 0, "maximum": 360},
+                    "saturation": {"type": "number", "minimum": 0, "maximum": 100},
+                    "brightness": {"type": "number", "minimum": 0, "maximum": 100},
+                    "kelvin": {"type": "integer", "minimum": 1500, "maximum": 9000},
+                    "duration_ms": {"type": "integer", "minimum": 0},
                 },
-                "required": ["plan_json"],
+                "required": ["target_serials"],
             },
         },
     }
+    return [set_state]
 
 
 def extract_plan(generated: str, source_text: str) -> dict[str, Any]:
-    match = CALL_PATTERN.search(generated)
-    if match is None:
-        return {
-            "schema_version": "1",
-            "confidence": 0.1,
-            "confidence_result": {
-                "level": "low",
-                "reasons": ["model did not propose a LIFX function call"],
-            },
-            "needs_confirmation": True,
-            "summary": "No supported LIFX command found",
-            "commands": [],
-        }
+    matches = CALL_PATTERN.findall(generated)
+    if not matches:
+        return empty_plan("model did not propose a LIFX function call")
 
-    try:
-        plan = json.loads(match.group(1))
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"model plan_json is invalid JSON: {exc}") from exc
-    if not isinstance(plan, dict):
-        raise ValueError("model plan_json must contain a JSON object")
+    commands = []
+    for body in matches:
+        action: dict[str, Any] = {}
+        power = escaped_value(body, "power")
+        if power in ("on", "off"):
+            action["power"] = power == "on"
+        for field in ("hue", "saturation", "brightness"):
+            value = numeric_value(body, field, float)
+            if value is not None: action[field] = value
+        for field in ("kelvin", "duration_ms"):
+            value = numeric_value(body, field, int)
+            if value is not None: action[field] = value
+        commands.append({
+            "targets": [{"serial": serial} for serial in escaped_array(body, "target_serials")],
+            "action": action,
+        })
+    return {
+        "schema_version": "1",
+        "confidence": 0.65,
+        "confidence_result": {"level": "medium", "reasons": ["FunctionGemma proposal"]},
+        "needs_confirmation": True,
+        "summary": f"Model proposal for: {source_text}",
+        "commands": merge_commands(commands),
+    }
 
-    plan.setdefault("schema_version", "1")
-    plan.setdefault("confidence", 0.65)
-    plan.setdefault(
-        "confidence_result",
-        {"level": "medium", "reasons": ["FunctionGemma proposal"]},
-    )
-    plan["needs_confirmation"] = True
-    plan.setdefault("summary", f"Model proposal for: {source_text}")
-    plan.setdefault("commands", [])
-    return plan
+
+def merge_commands(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    merged: dict[str, dict[str, Any]] = {}
+    for command in commands:
+        targets = []
+        for target in command["targets"]:
+            if target["serial"] not in targets: targets.append(target["serial"])
+        key = json.dumps(sorted(targets), separators=(",", ":"))
+        existing = merged.setdefault(key, {"targets": [{"serial": value} for value in targets], "action": {}})
+        existing["action"].update(command["action"])
+    return list(merged.values())
+
+
+def empty_plan(reason: str) -> dict[str, Any]:
+    return {
+        "schema_version": "1",
+        "confidence": 0.1,
+        "confidence_result": {"level": "low", "reasons": [reason]},
+        "needs_confirmation": True,
+        "summary": "No supported LIFX command found",
+        "commands": [],
+    }
+
+
+def request_is_relevant(model_input: dict[str, Any]) -> bool:
+    text = model_input.get("text", "").casefold()
+    if LIGHTING_WORDS.search(text): return True
+    for device in model_input.get("snapshot", {}).get("devices", []):
+        for value in (device.get("serial"), device.get("label"), device.get("group"), device.get("location")):
+            if value and value.casefold() in text: return True
+    return False
+
+
+def escaped_value(body: str, field: str) -> str | None:
+    match = re.search(rf"(?:^|,)\s*{re.escape(field)}\s*:\s*<escape>(.*?)<escape>", body, re.DOTALL)
+    return match.group(1).strip() if match else None
+
+
+def escaped_array(body: str, field: str) -> list[str]:
+    match = re.search(rf"(?:^|,)\s*{re.escape(field)}\s*:\s*\[(.*?)\]", body, re.DOTALL)
+    return re.findall(r"<escape>(.*?)<escape>", match.group(1), re.DOTALL) if match else []
+
+
+def numeric_value(body: str, field: str, cast: Any) -> Any | None:
+    match = re.search(rf"(?:^|,)\s*{re.escape(field)}\s*:\s*([^,}}]+)", body)
+    if not match: return None
+    try: return cast(match.group(1).strip())
+    except ValueError: return None
 
 
 def resolve_device(torch: Any, requested: str) -> str:
@@ -101,6 +164,12 @@ def resolve_device(torch: Any, requested: str) -> str:
 
 
 def generate(request: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+    model_input = request.get("input")
+    if not isinstance(model_input, dict) or not isinstance(model_input.get("text"), str):
+        raise ValueError("request.input.text must be a string")
+    if not request_is_relevant(model_input):
+        return empty_plan("request has no known target or lighting language")
+
     try:
         import torch
         from transformers import AutoModelForCausalLM, AutoProcessor
@@ -108,10 +177,6 @@ def generate(request: dict[str, Any], args: argparse.Namespace) -> dict[str, Any
         raise RuntimeError(
             "missing FunctionGemma dependencies; install requirements.txt"
         ) from exc
-
-    model_input = request.get("input")
-    if not isinstance(model_input, dict) or not isinstance(model_input.get("text"), str):
-        raise ValueError("request.input.text must be a string")
 
     local_only = not args.allow_download
     processor = AutoProcessor.from_pretrained(args.model, local_files_only=local_only)
@@ -137,7 +202,7 @@ def generate(request: dict[str, Any], args: argparse.Namespace) -> dict[str, Any
     ]
     inputs = processor.apply_chat_template(
         messages,
-        tools=[tool_schema(request.get("output_schema", ""))],
+        tools=tool_schemas(model_input),
         add_generation_prompt=True,
         tokenize=True,
         return_dict=True,
@@ -153,6 +218,8 @@ def generate(request: dict[str, Any], args: argparse.Namespace) -> dict[str, Any
     generated = processor.decode(
         output[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=False
     )
+    if args.debug:
+        print(f"functiongemma raw generation: {generated!r}", file=sys.stderr)
     return extract_plan(generated, model_input["text"])
 
 

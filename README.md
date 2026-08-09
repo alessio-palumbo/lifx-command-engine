@@ -89,7 +89,9 @@ go run ./cmd/lifx-command-engine \
   -model-arg=/path/to/functiongemma-model
 ```
 
-The runner uses the model's Transformers chat template and the `propose_lifx_plan` function declaration. It accepts model contract version 1, emits one CommandPlan on stdout, and writes failures to stderr. `--device` accepts `auto`, `cpu`, `cuda`, or `mps`; pass it using additional `-model-arg` flags. The optional runner flag `--allow-download` lets Transformers fetch missing files, but is deliberately disabled by default. Model licensing and access remain the user's responsibility.
+The runner uses the model's Transformers chat template and a flat, typed `set_lifx_state` function declaration whose serial values are constrained to the supplied snapshot. A deterministic relevance gate rejects requests with neither a known selector nor lighting-specific language before loading model weights. Parallel refinements for the same targets are normalized into one command, while Go still performs final target/range/schema validation. The runner accepts model contract version 1, emits one CommandPlan on stdout, and writes failures to stderr.
+
+`--device` accepts `auto`, `cpu`, `cuda`, or `mps`; pass it using additional `-model-arg` flags. `--debug` writes the untouched model generation to stderr for direct runner diagnostics. The optional `--allow-download` flag lets Transformers fetch missing files, but is deliberately disabled by default. Model licensing and access remain the user's responsibility.
 
 Run its dependency-free parser/contract tests with:
 
