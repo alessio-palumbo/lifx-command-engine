@@ -97,6 +97,31 @@ Run its dependency-free parser/contract tests with:
 python3 -m unittest discover -s runtimes/functiongemma -p 'test_*.py' -v
 ```
 
+### Interpreter evaluation
+
+The evaluation CLI reads versioned JSONL fixtures, runs the selected interpreter, prints a machine-readable report, and exits 1 when any case fails:
+
+```sh
+# Establish the deterministic rules baseline.
+go run ./cmd/lifx-command-engine-eval -mode rules
+
+# Evaluate FunctionGemma directly.
+go run ./cmd/lifx-command-engine-eval \
+  -mode model \
+  -model-command "$PWD/runtimes/functiongemma/runner.py" \
+  -model-arg=--model \
+  -model-arg=/path/to/functiongemma-model
+
+# Evaluate the production rules-first fallback path.
+go run ./cmd/lifx-command-engine-eval \
+  -mode hybrid \
+  -model-command "$PWD/runtimes/functiongemma/runner.py" \
+  -model-arg=--model \
+  -model-arg=/path/to/functiongemma-model
+```
+
+Reports include per-case failures, target and action accuracy, invalid plans, runtime errors, fallback eligibility/use, average latency, and p95 latency. The initial rules baseline is expected to fail the style, implicit-target, and movie-language cases; those failures define the value expected from a domain-tuned model. Override the corpus with `-fixtures` and the overall deadline with `-timeout`.
+
 ## Optional speech-to-text
 
 Build or install `whisper-cli`, provide an existing local model, and enable transcription explicitly:
