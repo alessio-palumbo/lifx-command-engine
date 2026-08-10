@@ -45,6 +45,42 @@ Errors have a stable shape: `{"id":...,"error":{"code":"invalid_params","message
 
 A client should construct `DeviceSnapshot` from its own state, send `interpret`, inspect confidence and commands, present a preview/confirmation when appropriate, and only then translate the semantic actions into its own LIFX transport calls.
 
+### Go sidecar client
+
+The public `client` package owns sidecar startup, JSONL framing, concurrent request correlation, context cancellation, crash detection, and clean shutdown. Its DTOs mirror protocol version 1 without exposing internal engine packages:
+
+```go
+sidecar, err := client.New(client.Config{
+    Path:           "/path/to/lifx-command-engine",
+    Args:           []string{"serve", "-config", "/path/to/config.json"},
+    RestartOnCrash: true,
+})
+if err != nil {
+    return err
+}
+defer sidecar.Close()
+
+if err := sidecar.Start(ctx); err != nil {
+    return err
+}
+plan, err := sidecar.Interpret(ctx, client.InterpretInput{
+    Text:     "turn desk on",
+    Snapshot: snapshot,
+})
+```
+
+Typed methods are available for `Health`, `Capabilities`, `Interpret`, and `Transcribe`. `TranscribeAndInterpret` returns both stages for microphone workflows, but never validates against live state, requests confirmation, or executes the resulting plan. Those responsibilities remain with Hikari, lifx-dash, or another host.
+
+When enabled, restart occurs on the next request after a crash. Failed requests are never automatically replayed, avoiding duplicate or stale host actions. Each call accepts a context; cancellation stops waiting and safely discards its eventual response without disrupting other callers. Protocol errors can be inspected with `errors.As(err, *client.APIError)`.
+
+Run the standalone example against a built sidecar:
+
+```sh
+go build -o /private/tmp/lifx-command-engine ./cmd/lifx-command-engine
+go run ./examples/go-client -engine /private/tmp/lifx-command-engine \
+  -text "turn desk on"
+```
+
 ## Development
 
 ```sh
@@ -100,6 +136,10 @@ By default KaggleHub uses its own cache. Add `-output /path/to/models` for an ex
 - Consider an optional local HTTP transport without replacing JSONL.
 
 The placeholder `Interpreter` and `Transcriber` interfaces define these extension seams; no model runtime is linked or downloaded.
+
+## License
+
+The original source code is available under the [MIT License](LICENSE). Optional model weights and third-party runtimes retain their own terms; see [third-party notices](THIRD_PARTY_NOTICES.md). In particular, FunctionGemma weights are not MIT-licensed and are not distributed by this repository.
 
 ## Optional model fallback
 
