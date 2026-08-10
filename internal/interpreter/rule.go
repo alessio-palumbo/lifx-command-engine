@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/alessio-palumbo/lifx-command-engine/internal/adapters/lifxlancommand"
 	"github.com/alessio-palumbo/lifx-command-engine/internal/confidence"
@@ -27,28 +28,34 @@ func (RuleInterpreter) Interpret(ctx context.Context, input schema.InterpretInpu
 	if err != nil {
 		return schema.CommandPlan{}, err
 	}
-	score, result := confidence.Score(input.Text, commands, ambiguousSnapshot(input.Snapshot))
+	score, result := confidence.Score(input.Text, commands, ambiguousTarget(input.Text, input.Snapshot))
 	return schema.CommandPlan{
 		SchemaVersion: "1", Confidence: score, ConfidenceResult: result,
 		NeedsConfirmation: score < .9, Summary: summarize(commands), Commands: commands,
 	}, nil
 }
 
-func ambiguousSnapshot(s schema.DeviceSnapshot) bool {
-	seen := map[string]bool{}
+func ambiguousTarget(text string, s schema.DeviceSnapshot) bool {
+	labels := map[string]int{}
 	for _, d := range s.Devices {
-		for _, value := range []string{d.Label, d.Group, d.Location} {
-			value = strings.ToLower(strings.TrimSpace(value))
-			if value == "" {
-				continue
-			}
-			if seen[value] {
-				return true
-			}
-			seen[value] = true
+		label := normalizeWords(d.Label)
+		if label != "" {
+			labels[label]++
+		}
+	}
+	normalizedText := " " + normalizeWords(text) + " "
+	for label, count := range labels {
+		if count > 1 && strings.Contains(normalizedText, " "+label+" ") {
+			return true
 		}
 	}
 	return false
+}
+
+func normalizeWords(value string) string {
+	return strings.Join(strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsNumber(r)
+	}), " ")
 }
 
 func summarize(commands []schema.CommandIntent) string {
