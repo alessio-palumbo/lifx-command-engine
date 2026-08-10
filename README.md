@@ -54,6 +54,43 @@ go build ./cmd/lifx-command-engine
 
 Tests require no devices or model downloads. Public wire DTOs live in `internal/schema`; before a separate Go library API is promised, clients should treat the JSON protocol as the stable integration surface.
 
+## Configuration and diagnostics
+
+Running the binary without a subcommand remains equivalent to `serve` and starts the JSONL loop. Runtime flags can instead be stored in a versioned JSON configuration based on [`config.example.json`](config.example.json):
+
+```sh
+go run ./cmd/lifx-command-engine serve -config /path/to/config.json
+```
+
+Paths are used exactly as written, which keeps configuration behavior independent of the current working directory. Explicit runtime flags override their corresponding configuration fields; repeatable `-model-arg` or `-whisper-arg` flags replace that argument list when supplied.
+
+The read-only `doctor` command checks the deterministic interpreter, configured executables, FunctionGemma model directory, Python `torch`/`transformers` imports, whisper.cpp model file, and configuration consistency. Optional unconfigured runtimes are warnings, while broken configured runtimes produce a failing exit status:
+
+```sh
+go run ./cmd/lifx-command-engine doctor -config /path/to/config.json
+```
+
+Output is JSON so host installers and packaging scripts can consume it.
+
+## Optional model installation
+
+List models known to the tooling without accessing the network:
+
+```sh
+go run ./cmd/lifx-command-engine models list
+```
+
+Installation is always explicit. The initial source is KaggleHub, matching FunctionGemma's Kaggle distribution:
+
+```sh
+/path/to/python -m pip install kagglehub
+go run ./cmd/lifx-command-engine models install functiongemma-270m-it \
+  -source kaggle \
+  -python /path/to/python
+```
+
+By default KaggleHub uses its own cache. Add `-output /path/to/models` for an explicit destination and `-timeout 1h` for a slower connection. Kaggle authentication, access consent, and licensing remain under the user's Kaggle account. The installer pins the catalogued revision, computes SHA-256 for every downloaded file, and writes `.lifx-command-engine-model.json` inside the resulting model directory. Its JSON result includes the resolved path for use in the runtime configuration. Normal startup never invokes KaggleHub or downloads anything. See the [official KaggleHub model download documentation](https://github.com/Kaggle/kagglehub#download-model).
+
 ## Future milestones
 
 - Add domain fine-tuning/export workflows; the Transformers FunctionGemma runtime and evaluation boundary are available.

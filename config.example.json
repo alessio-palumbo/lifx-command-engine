@@ -1,0 +1,17 @@
+{
+  "schema_version": "1",
+  "model": {
+    "command": "/path/to/python",
+    "args": [
+      "/path/to/lifx-command-engine/runtimes/functiongemma/runner.py",
+      "--model",
+      "/path/to/functiongemma-model"
+    ],
+    "persistent": true
+  },
+  "whisper": {
+    "command": "/path/to/whisper-cli",
+    "model_path": "/path/to/ggml-small.bin",
+    "args": []
+  }
+}
