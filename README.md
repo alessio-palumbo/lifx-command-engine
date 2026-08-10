@@ -2,7 +2,7 @@
 
 `lifx-command-engine` is a lightweight local sidecar that turns text into structured LIFX command plans. It does **not** discover devices, access the LAN, or execute commands. A host supplies a device snapshot, validates and previews the returned plan, asks for confirmation, and owns transport.
 
-The first milestone uses the deterministic parser from [`lifxlan-go/pkg/command`](https://github.com/alessio-palumbo/lifxlan-go/tree/main/pkg/command). Model and speech runtimes are optional future extensions.
+The deterministic parser from [`lifxlan-go/pkg/command`](https://github.com/alessio-palumbo/lifxlan-go/tree/main/pkg/command) remains the baseline. Model and speech runtimes are optional extensions and are never required for rule-only use.
 
 ## Protocol
 
@@ -93,7 +93,9 @@ go run ./cmd/lifx-command-engine \
   -model-arg=/path/to/functiongemma-model
 ```
 
-The runner uses the model's Transformers chat template and a flat, typed `set_lifx_state` function declaration whose serial values are constrained to the supplied snapshot. A deterministic relevance gate rejects requests with neither a known selector nor lighting-specific language before inference. Parallel refinements for the same targets are normalized into one command, while Go still performs final target/range/schema validation. The runner accepts model contract version 1, emits one CommandPlan in one-shot mode, or serves versioned JSONL envelopes after a readiness handshake in persistent mode. Failures are written to stderr or returned as per-request error envelopes.
+The runner uses the model's Transformers chat template and a flat, typed `set_lifx_state` function declaration. The model selects semantic inventory entries such as `device:Desk`, `group:Office`, or `location:Home`; the runner resolves them to serials from the supplied snapshot. An explicit device label in the request takes precedence over a broader model-selected group or location. A deterministic relevance gate rejects requests with neither a known selector nor lighting-specific language before inference.
+
+The runner also applies a conservative action policy to model calls. Power-only requests stay power-only, explicit brightness percentages are preserved, and action fields unsupported by the wording are removed. The initial style vocabulary defines `cozy` as warm white at 35% (`2700K`, zero saturation) and `movie` as 20% brightness; these are product semantics rather than unconstrained model guesses. All model plans still require host confirmation, and Go performs final target/range/schema validation. The runner accepts model contract version 1, emits one CommandPlan in one-shot mode, or serves versioned JSONL envelopes after a readiness handshake in persistent mode. Failures are written to stderr or returned as per-request error envelopes.
 
 `--device` accepts `auto`, `cpu`, `cuda`, or `mps`; pass it using additional `-model-arg` flags. `--debug` writes the untouched model generation to stderr for direct runner diagnostics. The optional `--allow-download` flag lets Transformers fetch missing files, but is deliberately disabled by default. Model licensing and access remain the user's responsibility.
 
@@ -130,7 +132,7 @@ go run ./cmd/lifx-command-engine-eval \
   -model-arg=/path/to/functiongemma-model
 ```
 
-Reports include per-case failures, target and action accuracy, invalid plans, runtime errors, fallback eligibility/use, average latency, and p95 latency. The initial rules baseline is expected to fail the style, implicit-target, and movie-language cases; those failures define the value expected from the model. Persistent evaluation includes startup in the first fallback's latency and reuses the loaded model afterward. Override the corpus with `-fixtures` and the overall deadline with `-timeout`.
+Reports include per-case failures, target and action accuracy, invalid plans, runtime errors, fallback eligibility/use, average latency, and p95 latency. Action expectations are exact: unsolicited action fields fail a case. The corpus uses multi-device snapshots so a model cannot pass target selection by choosing the only available light. The initial rules baseline is expected to fail the style, implicit-target, and movie-language cases; those failures define the value expected from the model. Persistent evaluation includes startup in the first fallback's latency and reuses the loaded model afterward. Override the corpus with `-fixtures` and the overall deadline with `-timeout`.
 
 ## Optional speech-to-text
 

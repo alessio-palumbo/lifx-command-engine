@@ -195,7 +195,7 @@ func score(plan schema.CommandPlan, expected Expected) []string {
 		}
 	}
 	if expected.Action != nil && !matchesAction(plan.Commands, *expected.Action) {
-		failures = append(failures, "action: no command matched expected fields")
+		failures = append(failures, "action: no command matched expected action exactly")
 	}
 	if expected.RequiresConfirmation != nil && plan.NeedsConfirmation != *expected.RequiresConfirmation {
 		failures = append(failures, fmt.Sprintf("confirmation: got %t want %t", plan.NeedsConfirmation, *expected.RequiresConfirmation))
@@ -224,26 +224,43 @@ func matchesAction(commands []schema.CommandIntent, expected schema.Action) bool
 	return false
 }
 func actionMatches(got, want schema.Action) bool {
-	if want.Power != nil && (got.Power == nil || *got.Power != *want.Power) {
+	if !equalBool(got.Power, want.Power) {
 		return false
 	}
-	if want.Hue != nil && (got.Hue == nil || !closeFloat(*got.Hue, *want.Hue)) {
+	if !equalFloat(got.Hue, want.Hue) {
 		return false
 	}
-	if want.Saturation != nil && (got.Saturation == nil || !closeFloat(*got.Saturation, *want.Saturation)) {
+	if !equalFloat(got.Saturation, want.Saturation) {
 		return false
 	}
-	if want.Brightness != nil && (got.Brightness == nil || !closeFloat(*got.Brightness, *want.Brightness)) {
+	if !equalFloat(got.Brightness, want.Brightness) {
 		return false
 	}
-	if want.Kelvin != nil && (got.Kelvin == nil || *got.Kelvin != *want.Kelvin) {
+	if !equalUint16(got.Kelvin, want.Kelvin) {
 		return false
 	}
-	if want.DurationMS != nil && (got.DurationMS == nil || *got.DurationMS != *want.DurationMS) {
+	if !equalUint32(got.DurationMS, want.DurationMS) {
 		return false
 	}
 	return true
 }
+
+func equalBool(a, b *bool) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func equalFloat(a, b *float64) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && closeFloat(*a, *b))
+}
+
+func equalUint16(a, b *uint16) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
+func equalUint32(a, b *uint32) bool {
+	return (a == nil && b == nil) || (a != nil && b != nil && *a == *b)
+}
+
 func closeFloat(a, b float64) bool { return math.Abs(a-b) <= .01 }
 func hasReason(plan schema.CommandPlan, reason string) bool {
 	return slices.Contains(plan.ConfidenceResult.Reasons, reason)

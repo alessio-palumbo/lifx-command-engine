@@ -20,6 +20,10 @@ LIGHTING_WORDS = re.compile(
     r"\b(light|lights|illuminate|brightness|bright|dim|colour|color|kelvin|warm|cool)\b",
     re.IGNORECASE,
 )
+STYLE_PROFILES = {
+    "cozy": {"power": True, "brightness": 35.0, "saturation": 0.0, "kelvin": 2700},
+    "movie": {"power": True, "brightness": 20.0},
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -39,26 +43,25 @@ def parse_args() -> argparse.Namespace:
 
 
 def tool_schemas(model_input: dict[str, Any]) -> list[dict[str, Any]]:
-    devices = model_input.get("snapshot", {}).get("devices", [])
-    serials = [device["serial"] for device in devices if device.get("serial")]
-    inventory = ", ".join(
-        f"{device.get('label', '')}={device.get('serial', '')}"
-        for device in devices
-    )
+    selectors, _ = selector_inventory(model_input)
     set_state = {
         "type": "function",
         "function": {
             "name": "set_lifx_state",
             "description": (
                 "Propose new power or color state for known LIFX devices. Never "
-                f"execute it. Device inventory: {inventory}"
+                "execute it. Select the narrowest matching target. Available target "
+                f"selectors: {', '.join(selectors)}"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "target_serials": {
-                        "type": "array", "items": {"type": "string", "enum": serials},
-                        "description": "Exact serials selected from the device inventory."
+                    "target_selectors": {
+                        "type": "array", "items": {"type": "string", "enum": selectors},
+                        "description": (
+                            "Semantic selectors from the inventory. Use device: for one "
+                            "named light, group: for a group, and location: for a location."
+                        ),
                     },
                     "power": {"type": "string", "enum": ["on", "off", "unchanged"]},
                     "hue": {"type": "number", "minimum": 0, "maximum": 360},
@@ -67,14 +70,60 @@ def tool_schemas(model_input: dict[str, Any]) -> list[dict[str, Any]]:
                     "kelvin": {"type": "integer", "minimum": 1500, "maximum": 9000},
                     "duration_ms": {"type": "integer", "minimum": 0},
                 },
-                "required": ["target_serials"],
+                "required": ["target_selectors"],
             },
         },
     }
     return [set_state]
 
 
-def extract_plan(generated: str, source_text: str) -> dict[str, Any]:
+def selector_inventory(model_input: dict[str, Any]) -> tuple[list[str], dict[str, list[str]]]:
+    devices = model_input.get("snapshot", {}).get("devices", [])
+    labels: dict[str, int] = {}
+    for device in devices:
+        if device.get("label"):
+            labels[device["label"]] = labels.get(device["label"], 0) + 1
+
+    mapping: dict[str, list[str]] = {}
+    for device in devices:
+        serial = device.get("serial")
+        if not serial:
+            continue
+        label = device.get("label") or serial
+        selector = f"device:{label}"
+        if labels.get(label, 0) > 1:
+            selector += f" [{serial}]"
+        mapping[selector] = [serial]
+        for kind in ("group", "location"):
+            value = device.get(kind)
+            if value:
+                mapping.setdefault(f"{kind}:{value}", []).append(serial)
+
+    for selector, serials in mapping.items():
+        mapping[selector] = list(dict.fromkeys(serials))
+    return list(mapping), mapping
+
+
+def explicit_device_targets(model_input: dict[str, Any]) -> list[str]:
+    text = model_input.get("text", "").casefold()
+    matches: list[tuple[int, str]] = []
+    for device in model_input.get("snapshot", {}).get("devices", []):
+        label = device.get("label")
+        serial = device.get("serial")
+        if label and serial and re.search(rf"(?<!\w){re.escape(label.casefold())}(?!\w)", text):
+            matches.append((len(label), serial))
+    if not matches:
+        return []
+    longest = max(length for length, _ in matches)
+    return list(dict.fromkeys(serial for length, serial in matches if length == longest))
+
+
+def extract_plan(
+    generated: str,
+    source_text: str,
+    selector_map: dict[str, list[str]] | None = None,
+    explicit_targets: list[str] | None = None,
+) -> dict[str, Any]:
     matches = CALL_PATTERN.findall(generated)
     if not matches:
         return empty_plan("model did not propose a LIFX function call")
@@ -91,10 +140,23 @@ def extract_plan(generated: str, source_text: str) -> dict[str, Any]:
         for field in ("kelvin", "duration_ms"):
             value = numeric_value(body, field, int)
             if value is not None: action[field] = value
-        commands.append({
-            "targets": [{"serial": serial} for serial in escaped_array(body, "target_serials")],
-            "action": action,
-        })
+        selectors = escaped_array(body, "target_selectors")
+        serials: list[str] = []
+        for selector in selectors:
+            serials.extend((selector_map or {}).get(selector, []))
+        # Keep parsing the old field for compatibility with saved model traces.
+        if not selectors:
+            serials.extend(escaped_array(body, "target_serials"))
+        if explicit_targets:
+            serials = explicit_targets
+        action = apply_action_policy(source_text, action)
+        if serials and action:
+            commands.append({
+                "targets": [{"serial": serial} for serial in dict.fromkeys(serials)],
+                "action": action,
+            })
+    if not commands:
+        return empty_plan("model proposal had no valid target and action")
     return {
         "schema_version": "1",
         "confidence": 0.65,
@@ -115,6 +177,38 @@ def merge_commands(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
         existing = merged.setdefault(key, {"targets": [{"serial": value} for value in targets], "action": {}})
         existing["action"].update(command["action"])
     return list(merged.values())
+
+
+def apply_action_policy(text: str, proposed: dict[str, Any]) -> dict[str, Any]:
+    normalized = text.casefold()
+    for style, action in STYLE_PROFILES.items():
+        if re.search(rf"\b{style}\b", normalized):
+            return action.copy()
+
+    action: dict[str, Any] = {}
+    if re.search(r"\b(off|disable)\b", normalized):
+        action["power"] = False
+    elif re.search(r"\b(on|enable|illuminate)\b", normalized):
+        action["power"] = True
+
+    percentage = re.search(r"\b(\d{1,3}(?:\.\d+)?)\s*%", normalized)
+    if percentage and re.search(r"\b(bright|brightness|dim)\b", normalized):
+        action["brightness"] = min(100.0, float(percentage.group(1)))
+    elif re.search(r"\b(dim|bright|brightness)\b", normalized) and "brightness" in proposed:
+        action["brightness"] = proposed["brightness"]
+
+    color_language = re.search(
+        r"\b(hue|saturation|colo(?:u)?r|red|green|blue|yellow|purple|pink|orange|warm|cool|kelvin|white)\b",
+        normalized,
+    )
+    if color_language:
+        for field in ("hue", "saturation", "kelvin"):
+            if field in proposed:
+                action[field] = proposed[field]
+    if re.search(r"\b(over|in|for)\s+\d+\s*(ms|milliseconds?|seconds?|minutes?)\b", normalized):
+        if "duration_ms" in proposed:
+            action["duration_ms"] = proposed["duration_ms"]
+    return action
 
 
 def empty_plan(reason: str) -> dict[str, Any]:
@@ -215,7 +309,13 @@ class Runtime:
         )
         if self.args.debug:
             print(f"functiongemma raw generation: {generated!r}", file=sys.stderr)
-        return extract_plan(generated, model_input["text"])
+        _, selector_map = selector_inventory(model_input)
+        return extract_plan(
+            generated,
+            model_input["text"],
+            selector_map,
+            explicit_device_targets(model_input),
+        )
 
 
 def generate(

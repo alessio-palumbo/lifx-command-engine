@@ -48,3 +48,21 @@ func TestEvaluatorReportsMismatch(t *testing.T) {
 		t.Fatalf("report = %#v", report)
 	}
 }
+
+func TestEvaluatorRejectsUnsolicitedActionFields(t *testing.T) {
+	power := true
+	brightness := 100.0
+	fixtures := []Fixture{{
+		SchemaVersion: "1",
+		Name:          "power_only",
+		Input:         schema.InterpretInput{Text: "desk on"},
+		Expected:      Expected{Action: &schema.Action{Power: &power}},
+	}}
+	plan := schema.CommandPlan{Commands: []schema.CommandIntent{{
+		Action: schema.Action{Power: &power, Brightness: &brightness},
+	}}}
+	report := (Evaluator{Mode: "model", Subject: fakeInterpreter{plan: plan}}).Run(context.Background(), fixtures)
+	if report.Passed != 0 || report.ActionAccuracy == nil || *report.ActionAccuracy != 0 {
+		t.Fatalf("report = %#v", report)
+	}
+}
