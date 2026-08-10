@@ -21,7 +21,7 @@ var models = []Model{{
 	Handle:     "google/functiongemma/transformers/functiongemma-270m-it/1",
 	Revision:   "1",
 	Runtime:    "runtimes/functiongemma/runner.py",
-	LicenseURL: "https://www.kaggle.com/models/google/functiongemma",
+	LicenseURL: "https://ai.google.dev/gemma/terms",
 }}
 
 func List() []Model { return append([]Model(nil), models...) }
