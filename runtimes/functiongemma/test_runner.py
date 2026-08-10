@@ -1,7 +1,9 @@
 import json
+import argparse
+import io
 import unittest
 
-from runner import extract_plan, request_is_relevant, tool_schemas
+from runner import extract_plan, request_is_relevant, serve, tool_schemas
 
 
 class RunnerTest(unittest.TestCase):
@@ -52,6 +54,23 @@ class RunnerTest(unittest.TestCase):
         self.assertTrue(request_is_relevant({"text": "illuminate my work area", "snapshot": snapshot}))
         self.assertFalse(request_is_relevant({"text": "turn garage on", "snapshot": snapshot}))
         self.assertFalse(request_is_relevant({"text": "play jazz", "snapshot": snapshot}))
+
+    def test_persistent_server_handshake_results_and_errors(self):
+        class FakeRuntime:
+            def generate(self, request, model_input):
+                return {"text": model_input["text"]}
+
+        requests = "\n".join([
+            json.dumps({"contract_version": "1", "input": {"text": "dim lights", "snapshot": {}}}),
+            json.dumps({"contract_version": "2", "input": {"text": "bad"}}),
+        ])
+        output = io.StringIO()
+        args = argparse.Namespace()
+        self.assertEqual(serve(FakeRuntime(), args, io.StringIO(requests), output), 0)
+        messages = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(messages[0], {"type": "ready", "contract_version": "1"})
+        self.assertEqual(messages[1]["result"], {"text": "dim lights"})
+        self.assertIn("unsupported", messages[2]["error"])
 
 
 if __name__ == "__main__":

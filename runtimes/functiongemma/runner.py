@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One-shot FunctionGemma adapter for the lifx-command-engine model contract."""
+"""FunctionGemma adapter for the lifx-command-engine model contract."""
 
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda, or mps")
     parser.add_argument("--max-new-tokens", type=int, default=512)
     parser.add_argument("--debug", action="store_true", help="write raw model generation to stderr")
+    parser.add_argument("--serve", action="store_true", help="serve persistent JSONL requests")
     parser.add_argument(
         "--allow-download",
         action="store_true",
@@ -163,64 +164,97 @@ def resolve_device(torch: Any, requested: str) -> str:
     return "cpu"
 
 
-def generate(request: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+class Runtime:
+    def __init__(self, args: argparse.Namespace):
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoProcessor
+        except ImportError as exc:
+            raise RuntimeError(
+                "missing FunctionGemma dependencies; install requirements.txt"
+            ) from exc
+        local_only = not args.allow_download
+        self.torch = torch
+        self.processor = AutoProcessor.from_pretrained(args.model, local_files_only=local_only)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            args.model, dtype="auto", local_files_only=local_only
+        )
+        self.device = resolve_device(torch, args.device)
+        self.model.to(self.device)
+        self.args = args
+
+    def generate(self, request: dict[str, Any], model_input: dict[str, Any]) -> dict[str, Any]:
+        developer = request.get("developer_instruction", "")
+        messages = [
+            {
+                "role": "developer",
+                "content": (
+                    "You are a model that can do function calling with the following "
+                    f"functions. {developer}"
+                ),
+            },
+            {"role": "user", "content": json.dumps(model_input, separators=(",", ":"))},
+        ]
+        inputs = self.processor.apply_chat_template(
+            messages,
+            tools=tool_schemas(model_input),
+            add_generation_prompt=True,
+            tokenize=True,
+            return_dict=True,
+            return_tensors="pt",
+        ).to(self.device)
+        with self.torch.inference_mode():
+            output = self.model.generate(
+                **inputs,
+                max_new_tokens=self.args.max_new_tokens,
+                do_sample=False,
+                pad_token_id=self.processor.eos_token_id,
+            )
+        generated = self.processor.decode(
+            output[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=False
+        )
+        if self.args.debug:
+            print(f"functiongemma raw generation: {generated!r}", file=sys.stderr)
+        return extract_plan(generated, model_input["text"])
+
+
+def generate(
+    request: dict[str, Any], args: argparse.Namespace, runtime: Runtime | None = None
+) -> dict[str, Any]:
     model_input = request.get("input")
     if not isinstance(model_input, dict) or not isinstance(model_input.get("text"), str):
         raise ValueError("request.input.text must be a string")
     if not request_is_relevant(model_input):
         return empty_plan("request has no known target or lighting language")
+    active_runtime = runtime or Runtime(args)
+    return active_runtime.generate(request, model_input)
 
-    try:
-        import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor
-    except ImportError as exc:
-        raise RuntimeError(
-            "missing FunctionGemma dependencies; install requirements.txt"
-        ) from exc
 
-    local_only = not args.allow_download
-    processor = AutoProcessor.from_pretrained(args.model, local_files_only=local_only)
-    model = AutoModelForCausalLM.from_pretrained(
-        args.model, dtype="auto", local_files_only=local_only
+def validate_request(request: dict[str, Any]) -> None:
+    if request.get("contract_version") != CONTRACT_VERSION:
+        raise ValueError("unsupported model contract version")
+
+
+def serve(
+    runtime: Runtime, args: argparse.Namespace, stdin: Any, stdout: Any
+) -> int:
+    print(
+        json.dumps({"type": "ready", "contract_version": CONTRACT_VERSION}),
+        file=stdout,
+        flush=True,
     )
-    device = resolve_device(torch, args.device)
-    model.to(device)
-
-    developer = request.get("developer_instruction", "")
-    messages = [
-        {
-            "role": "developer",
-            "content": (
-                "You are a model that can do function calling with the following "
-                f"functions. {developer}"
-            ),
-        },
-        {
-            "role": "user",
-            "content": json.dumps(model_input, separators=(",", ":")),
-        },
-    ]
-    inputs = processor.apply_chat_template(
-        messages,
-        tools=tool_schemas(model_input),
-        add_generation_prompt=True,
-        tokenize=True,
-        return_dict=True,
-        return_tensors="pt",
-    ).to(device)
-    with torch.inference_mode():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=args.max_new_tokens,
-            do_sample=False,
-            pad_token_id=processor.eos_token_id,
-        )
-    generated = processor.decode(
-        output[0][inputs["input_ids"].shape[-1] :], skip_special_tokens=False
-    )
-    if args.debug:
-        print(f"functiongemma raw generation: {generated!r}", file=sys.stderr)
-    return extract_plan(generated, model_input["text"])
+    for line in stdin:
+        try:
+            request = json.loads(line)
+            validate_request(request)
+            response = {
+                "contract_version": CONTRACT_VERSION,
+                "result": generate(request, args, runtime),
+            }
+        except Exception as exc:
+            response = {"contract_version": CONTRACT_VERSION, "error": str(exc)}
+        print(json.dumps(response, separators=(",", ":")), file=stdout, flush=True)
+    return 0
 
 
 def main() -> int:
@@ -229,9 +263,10 @@ def main() -> int:
         print(json.dumps({"name": "functiongemma-transformers", "contract_version": CONTRACT_VERSION}))
         return 0
     try:
+        if args.serve:
+            return serve(Runtime(args), args, sys.stdin, sys.stdout)
         request = json.load(sys.stdin)
-        if request.get("contract_version") != CONTRACT_VERSION:
-            raise ValueError("unsupported model contract version")
+        validate_request(request)
         print(json.dumps(generate(request, args), separators=(",", ":")))
         return 0
     except Exception as exc:  # runtime errors belong on stderr for the Go adapter

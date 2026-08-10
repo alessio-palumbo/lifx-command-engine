@@ -17,10 +17,14 @@ func main() {
 	fixturesPath := flag.String("fixtures", "testdata/functiongemma-eval.jsonl", "JSONL evaluation fixtures")
 	mode := flag.String("mode", "rules", "rules, model, or hybrid")
 	modelCommand := flag.String("model-command", "", "model runtime executable (required for model/hybrid)")
+	modelPersistent := flag.Bool("model-persistent", false, "keep a compatible JSONL model runtime loaded")
 	var modelArgs stringList
 	flag.Var(&modelArgs, "model-arg", "model runtime argument (repeatable)")
 	timeout := flag.Duration("timeout", 5*time.Minute, "timeout for the complete evaluation")
 	flag.Parse()
+	if *modelPersistent && *modelCommand == "" {
+		fatalIf(fmt.Errorf("-model-persistent requires -model-command"))
+	}
 
 	file, err := os.Open(*fixturesPath)
 	fatalIf(err)
@@ -29,13 +33,19 @@ func main() {
 	fatalIf(err)
 	rules := interpreter.RuleInterpreter{}
 	var subject interpreter.Interpreter = rules
+	var persistent *model.PersistentProcessGenerator
 	switch *mode {
 	case "rules":
 	case "model", "hybrid":
 		if *modelCommand == "" {
 			fatalIf(fmt.Errorf("-model-command is required for mode %s", *mode))
 		}
-		modelInterpreter := interpreter.ModelInterpreter{Generator: model.ProcessGenerator{Path: *modelCommand, Args: modelArgs}}
+		var generator model.Generator = model.ProcessGenerator{Path: *modelCommand, Args: modelArgs}
+		if *modelPersistent {
+			persistent = &model.PersistentProcessGenerator{Path: *modelCommand, Args: modelArgs}
+			generator = persistent
+		}
+		modelInterpreter := interpreter.ModelInterpreter{Generator: generator}
 		if *mode == "model" {
 			subject = modelInterpreter
 		} else {
@@ -47,6 +57,9 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
 	report := (evaluation.Evaluator{Mode: *mode, Subject: subject, Rules: rules}).Run(ctx, fixtures)
+	if persistent != nil {
+		_ = persistent.Close()
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	fatalIf(enc.Encode(report))

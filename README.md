@@ -66,7 +66,9 @@ The placeholder `Interpreter` and `Transcriber` interfaces define these extensio
 
 ## Optional model fallback
 
-Pass `-model-command /path/to/runtime` to enable the rules-first hybrid interpreter. Arguments can be added with repeatable `-model-arg value` flags. The command is invoked directly without a shell, receives one model request as JSON on stdin, and must return exactly one CommandPlan JSON object on stdout. This supports a local FunctionGemma runner implemented with Transformers, LiteRT-LM, llama.cpp, MLX, or another compatible runtime without linking it into the Go service.
+Pass `-model-command /path/to/runtime` to enable the rules-first hybrid interpreter. Arguments can be added with repeatable `-model-arg value` flags. By default, the command is invoked directly once per fallback, receives one request as JSON on stdin, and returns one CommandPlan on stdout. This generic boundary supports local runtimes implemented with Transformers, LiteRT-LM, llama.cpp, MLX, or another compatible framework without linking it into the Go service.
+
+Add `-model-persistent` for runtimes that implement the version 1 persistent protocol. The engine appends `--serve`, waits for a readiness handshake, then exchanges JSONL requests and response envelopes over the same process. Requests are serialized; cancellation or a process/protocol failure discards the child so the next fallback starts a clean runtime. The maintained FunctionGemma runner supports both modes.
 
 The rule parser returns immediately at high confidence. Lower-confidence input is offered to the configured model command. Every model plan is strictly decoded, range checked, constrained to serials in the caller's snapshot, normalized with trusted snapshot metadata, and marked as requiring confirmation. If the runtime is missing or fails, the original rule plan is returned with a `model fallback unavailable` confidence reason.
 
@@ -84,12 +86,14 @@ python3 -m venv /private/tmp/lifx-functiongemma-venv
   -r runtimes/functiongemma/requirements.txt
 
 go run ./cmd/lifx-command-engine \
-  -model-command "$PWD/runtimes/functiongemma/runner.py" \
+  -model-command /private/tmp/lifx-functiongemma-venv/bin/python \
+  -model-persistent \
+  -model-arg="$PWD/runtimes/functiongemma/runner.py" \
   -model-arg=--model \
   -model-arg=/path/to/functiongemma-model
 ```
 
-The runner uses the model's Transformers chat template and a flat, typed `set_lifx_state` function declaration whose serial values are constrained to the supplied snapshot. A deterministic relevance gate rejects requests with neither a known selector nor lighting-specific language before loading model weights. Parallel refinements for the same targets are normalized into one command, while Go still performs final target/range/schema validation. The runner accepts model contract version 1, emits one CommandPlan on stdout, and writes failures to stderr.
+The runner uses the model's Transformers chat template and a flat, typed `set_lifx_state` function declaration whose serial values are constrained to the supplied snapshot. A deterministic relevance gate rejects requests with neither a known selector nor lighting-specific language before inference. Parallel refinements for the same targets are normalized into one command, while Go still performs final target/range/schema validation. The runner accepts model contract version 1, emits one CommandPlan in one-shot mode, or serves versioned JSONL envelopes after a readiness handshake in persistent mode. Failures are written to stderr or returned as per-request error envelopes.
 
 `--device` accepts `auto`, `cpu`, `cuda`, or `mps`; pass it using additional `-model-arg` flags. `--debug` writes the untouched model generation to stderr for direct runner diagnostics. The optional `--allow-download` flag lets Transformers fetch missing files, but is deliberately disabled by default. Model licensing and access remain the user's responsibility.
 
@@ -110,19 +114,23 @@ go run ./cmd/lifx-command-engine-eval -mode rules
 # Evaluate FunctionGemma directly.
 go run ./cmd/lifx-command-engine-eval \
   -mode model \
-  -model-command "$PWD/runtimes/functiongemma/runner.py" \
+  -model-persistent \
+  -model-command /private/tmp/lifx-functiongemma-venv/bin/python \
+  -model-arg="$PWD/runtimes/functiongemma/runner.py" \
   -model-arg=--model \
   -model-arg=/path/to/functiongemma-model
 
 # Evaluate the production rules-first fallback path.
 go run ./cmd/lifx-command-engine-eval \
   -mode hybrid \
-  -model-command "$PWD/runtimes/functiongemma/runner.py" \
+  -model-persistent \
+  -model-command /private/tmp/lifx-functiongemma-venv/bin/python \
+  -model-arg="$PWD/runtimes/functiongemma/runner.py" \
   -model-arg=--model \
   -model-arg=/path/to/functiongemma-model
 ```
 
-Reports include per-case failures, target and action accuracy, invalid plans, runtime errors, fallback eligibility/use, average latency, and p95 latency. The initial rules baseline is expected to fail the style, implicit-target, and movie-language cases; those failures define the value expected from a domain-tuned model. Override the corpus with `-fixtures` and the overall deadline with `-timeout`.
+Reports include per-case failures, target and action accuracy, invalid plans, runtime errors, fallback eligibility/use, average latency, and p95 latency. The initial rules baseline is expected to fail the style, implicit-target, and movie-language cases; those failures define the value expected from the model. Persistent evaluation includes startup in the first fallback's latency and reuses the loaded model afterward. Override the corpus with `-fixtures` and the overall deadline with `-timeout`.
 
 ## Optional speech-to-text
 

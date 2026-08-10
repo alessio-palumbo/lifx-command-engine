@@ -16,6 +16,7 @@ import (
 
 func main() {
 	modelCommand := flag.String("model-command", "", "optional local FunctionGemma-compatible runtime executable")
+	modelPersistent := flag.Bool("model-persistent", false, "keep a compatible JSONL model runtime loaded")
 	var modelArgs stringList
 	flag.Var(&modelArgs, "model-arg", "argument for model command (repeatable)")
 	whisperCommand := flag.String("whisper-command", "", "optional whisper.cpp CLI executable")
@@ -23,6 +24,10 @@ func main() {
 	var whisperArgs stringList
 	flag.Var(&whisperArgs, "whisper-arg", "argument placed before managed whisper.cpp arguments (repeatable)")
 	flag.Parse()
+	if *modelPersistent && *modelCommand == "" {
+		fmt.Fprintln(os.Stderr, "-model-persistent requires -model-command")
+		os.Exit(2)
+	}
 	if (*whisperCommand == "") != (*whisperModel == "") {
 		fmt.Fprintln(os.Stderr, "-whisper-command and -whisper-model must be set together")
 		os.Exit(2)
@@ -31,10 +36,18 @@ func main() {
 	var active interpreter.Interpreter = interpreter.RuleInterpreter{}
 	capabilities := schema.Capabilities{ProtocolVersion: jsonl.ProtocolVersion, CommandPlanSchema: "1", Methods: []string{"health", "capabilities", "interpret"}, Interpreters: []string{"rules"}, Transcription: false, ExecutesCommands: false}
 	if *modelCommand != "" {
-		modelInterpreter := interpreter.ModelInterpreter{Generator: model.ProcessGenerator{Path: *modelCommand, Args: modelArgs}}
+		var generator model.Generator = model.ProcessGenerator{Path: *modelCommand, Args: modelArgs}
+		if *modelPersistent {
+			persistent := &model.PersistentProcessGenerator{Path: *modelCommand, Args: modelArgs}
+			defer persistent.Close()
+			generator = persistent
+			capabilities.ModelRuntime = "persistent_external_command"
+		} else {
+			capabilities.ModelRuntime = "external_command"
+		}
+		modelInterpreter := interpreter.ModelInterpreter{Generator: generator}
 		active = interpreter.HybridInterpreter{Rules: active, Model: modelInterpreter}
 		capabilities.Interpreters = []string{"rules", "model", "hybrid"}
-		capabilities.ModelRuntime = "external_command"
 	}
 	var transcriber speech.Transcriber
 	if *whisperCommand != "" {
