@@ -14,14 +14,23 @@ type NamedRef struct {
 }
 
 type SnapshotDevice struct {
-	Serial    string `json:"serial"`
-	Label     string `json:"label"`
-	Group     string `json:"group,omitempty"`
-	Location  string `json:"location,omitempty"`
-	ProductID uint32 `json:"product_id,omitempty"`
-	HasColor  bool   `json:"has_color,omitempty"`
-	MinKelvin uint16 `json:"min_kelvin,omitempty"`
-	MaxKelvin uint16 `json:"max_kelvin,omitempty"`
+	Serial       string       `json:"serial"`
+	Label        string       `json:"label"`
+	Group        string       `json:"group,omitempty"`
+	Location     string       `json:"location,omitempty"`
+	ProductID    uint32       `json:"product_id,omitempty"`
+	HasColor     bool         `json:"has_color,omitempty"`
+	MinKelvin    uint16       `json:"min_kelvin,omitempty"`
+	MaxKelvin    uint16       `json:"max_kelvin,omitempty"`
+	CurrentState *DeviceState `json:"current_state,omitempty"`
+}
+
+type DeviceState struct {
+	Power      *bool    `json:"power,omitempty"`
+	Hue        *float64 `json:"hue,omitempty"`
+	Saturation *float64 `json:"saturation,omitempty"`
+	Brightness *float64 `json:"brightness,omitempty"`
+	Kelvin     *uint16  `json:"kelvin,omitempty"`
 }
 
 type InterpretInput struct {
