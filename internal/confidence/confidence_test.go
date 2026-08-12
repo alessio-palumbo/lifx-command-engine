@@ -16,6 +16,8 @@ func TestScore(t *testing.T) {
 	}{
 		{"exact", "desk on", []schema.CommandIntent{command}, false, "high", 1},
 		{"style", "make desk cozy and on", []schema.CommandIntent{command}, false, "medium", .7},
+		{"supported white", "desk warm white at 35%", []schema.CommandIntent{command}, false, "high", 1},
+		{"random", "desk random", []schema.CommandIntent{command}, false, "medium", .8},
 		{"none", "do something", nil, false, "low", .2},
 		{"ambiguous", "lamp on", []schema.CommandIntent{command}, true, "medium", .8},
 	}

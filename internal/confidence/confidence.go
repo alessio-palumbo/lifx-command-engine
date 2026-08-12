@@ -7,8 +7,8 @@ import (
 	"github.com/alessio-palumbo/lifx-command-engine/internal/schema"
 )
 
-var styleWords = regexp.MustCompile(`\b(cozy|cosy|relaxing|romantic|focus|energizing|mood|vibe|gentle|dramatic)\b`)
-var unsupportedPhrases = regexp.MustCompile(`\bwarm\s+white\b|\bat\s+\d+%`)
+var unsupportedStyleWords = regexp.MustCompile(`\b(cozy|cosy|relaxing|romantic|focus|energizing|movie|mood|vibe|gentle|dramatic)\b`)
+var nondeterministicWords = regexp.MustCompile(`\brandom\b`)
 
 func Score(text string, commands []schema.CommandIntent, ambiguous bool) (float64, schema.ConfidenceResult) {
 	reasons := []string{}
@@ -32,9 +32,14 @@ func Score(text string, commands []schema.CommandIntent, ambiguous bool) (float6
 		score -= 0.08
 		reasons = append(reasons, "command affects multiple devices")
 	}
-	if styleWords.MatchString(strings.ToLower(text)) || unsupportedPhrases.MatchString(strings.ToLower(text)) {
+	normalized := strings.ToLower(text)
+	if unsupportedStyleWords.MatchString(normalized) {
 		score -= 0.35
 		reasons = append(reasons, "unsupported style language ignored")
+	}
+	if nondeterministicWords.MatchString(normalized) {
+		score -= 0.2
+		reasons = append(reasons, "random color requires confirmation")
 	}
 	if len(reasons) == 0 {
 		reasons = append(reasons, "exact rule-parser match")
