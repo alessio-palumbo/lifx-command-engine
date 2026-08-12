@@ -1,5 +1,7 @@
 # lifx-command-engine
 
+[![CI](https://github.com/alessio-palumbo/lifx-command-engine/actions/workflows/ci.yml/badge.svg)](https://github.com/alessio-palumbo/lifx-command-engine/actions/workflows/ci.yml)
+
 `lifx-command-engine` is a lightweight local sidecar that turns text into structured LIFX command plans. It does **not** discover devices, access the LAN, or execute commands. A host supplies a device snapshot, validates and previews the returned plan, asks for confirmation, and owns transport.
 
 The deterministic parser from [`lifxlan-go/pkg/command`](https://github.com/alessio-palumbo/lifxlan-go/tree/main/pkg/command) remains the baseline. Model and speech runtimes are optional extensions and are never required for rule-only use.
@@ -101,6 +103,27 @@ go build ./cmd/lifx-command-engine
 ```
 
 Tests require no devices or model downloads. Public wire DTOs live in `internal/schema`; before a separate Go library API is promised, clients should treat the JSON protocol as the stable integration surface.
+
+CI runs on Ubuntu and macOS and verifies module tidiness, vet, race-enabled Go tests, both command builds, the deterministic parser evaluation corpus, and dependency-free FunctionGemma contract tests. It never downloads model weights or optional runtimes.
+
+## Releases
+
+Pushing a semantic version tag such as `v0.2.0` runs validation and publishes rule-only archives for macOS and Linux on amd64 and arm64:
+
+```sh
+git tag -a v0.2.0 -m "v0.2.0"
+git push origin v0.2.0
+```
+
+Each archive contains `lifx-command-engine`, `lifx-command-engine-eval`, the example configuration, README, MIT license, and third-party notices. A `checksums.txt` file contains SHA-256 hashes. Releases deliberately exclude Python, FunctionGemma weights, whisper.cpp, and speech models.
+
+The same packages can be built locally without publishing:
+
+```sh
+./scripts/package-release.sh v0.2.0 /private/tmp/lifx-command-engine-release
+```
+
+Windows is not yet included because sidecar lifecycle and packaging have not been exercised on Windows CI.
 
 ## Configuration and diagnostics
 
