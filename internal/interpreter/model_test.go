@@ -57,6 +57,40 @@ func TestModelInterpreterRejectsUnsafeOutput(t *testing.T) {
 	}
 }
 
+func TestModelInterpreterInfersPowerAndSplitsMixedTargets(t *testing.T) {
+	poweredOn := true
+	g := &fakeGenerator{output: `{"schema_version":"1","confidence":0.7,"confidence_result":{"level":"medium","reasons":["model match"]},"needs_confirmation":true,"summary":"Set office blue","commands":[{"targets":[{"serial":"d073d5000001"},{"serial":"d073d5000002"}],"action":{"hue":250,"saturation":100}}]}`}
+	input := schema.InterpretInput{Text: "office blue", Snapshot: schema.DeviceSnapshot{Devices: []schema.SnapshotDevice{
+		{Serial: "d073d5000001", Label: "Desk", Group: "Office"},
+		{Serial: "d073d5000002", Label: "Shelf", Group: "Office", CurrentState: &schema.DeviceState{Power: &poweredOn}},
+	}}}
+	plan, err := (ModelInterpreter{Generator: g}).Interpret(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Commands) != 2 {
+		t.Fatalf("commands = %#v", plan.Commands)
+	}
+	if plan.Commands[0].Targets[0].Label != "Desk" || plan.Commands[0].Action.Power == nil || !*plan.Commands[0].Action.Power {
+		t.Fatalf("off command = %#v", plan.Commands[0])
+	}
+	if plan.Commands[1].Targets[0].Label != "Shelf" || plan.Commands[1].Action.Power != nil {
+		t.Fatalf("on command = %#v", plan.Commands[1])
+	}
+}
+
+func TestModelInterpreterExplicitOffPreventsPowerInference(t *testing.T) {
+	g := &fakeGenerator{output: `{"schema_version":"1","confidence":0.7,"confidence_result":{"level":"medium","reasons":["model match"]},"needs_confirmation":true,"summary":"Set and turn off Desk","commands":[{"targets":[{"serial":"d073d5000001"}],"action":{"power":false,"brightness":35}}]}`}
+	input := schema.InterpretInput{Text: "desk brightness 35% then off", Snapshot: schema.DeviceSnapshot{Devices: []schema.SnapshotDevice{{Serial: "d073d5000001", Label: "Desk"}}}}
+	plan, err := (ModelInterpreter{Generator: g}).Interpret(context.Background(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Commands[0].Action.Power == nil || *plan.Commands[0].Action.Power {
+		t.Fatalf("command = %#v", plan.Commands[0])
+	}
+}
+
 type fakeInterpreter struct {
 	plan  schema.CommandPlan
 	err   error

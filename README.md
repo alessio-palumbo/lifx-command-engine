@@ -44,7 +44,9 @@ Run `go run ./cmd/lifx-command-engine`. Send one JSON request per line on stdin;
 
 The response contains `confidence`, an explainable `confidence_result`, `needs_confirmation`, a display `summary`, and semantic `commands`. Each target includes its serial as the stable host execution identity. Actions use human-scale values: hue in degrees, saturation/brightness in percent, Kelvin, and duration in milliseconds.
 
-`current_state` is optional for absolute commands but required for relative properties such as `brighter`, `dim`, `warmer`, `cooler`, `softer`, and `richer`. Hosts should provide their latest known values and omit unknown fields instead of substituting zero. Relative group commands can produce one command per device because each result is calculated from that device's state. Supported compact rule commands also include named and styled colors, white-temperature phrases, durations, and sequential commands separated by punctuation or `then`.
+`current_state` is optional for absolute commands but its property values are required for relative operations such as `brighter`, `dim`, `warmer`, `cooler`, `softer`, and `richer`. Hosts should provide their latest known color values and omit unknown color fields instead of substituting zero. Power follows lifxlan-go's state convention: omitted or false means off. A visual color or brightness action therefore adds `power:true` for an off device, while an already-on device receives no redundant power action. Explicit `off` always wins.
+
+A single contextual percentage means brightness, so `turn desk warm white at 35%` sets warm white at 35%; `turn` and `at` are filler words. Mixed-state groups and relative group commands may produce separate commands per device because their required power or resulting property values differ. Other supported compact forms include named and styled colors, white-temperature phrases, durations, and sequential commands separated by punctuation or `then`.
 
 Supported methods are:
 
@@ -246,7 +248,7 @@ go run ./cmd/lifx-command-engine-eval \
 
 Reports include per-case failures, target and action accuracy, invalid plans, runtime errors, fallback eligibility/use, average latency, and p95 latency. Action expectations are exact: unsolicited action fields fail a case. The corpus uses multi-device snapshots so a model cannot pass target selection by choosing the only available light. The initial rules baseline is expected to fail the style, implicit-target, and movie-language cases; those failures define the value expected from the model. Persistent evaluation includes startup in the first fallback's latency and reuses the loaded model afterward. Override the corpus with `-fixtures` and the overall deadline with `-timeout`.
 
-The separate `testdata/rule-parser-eval.jsonl` corpus protects richer deterministic behavior, including styled colors, white temperatures, minute durations, current-state-relative changes, per-device group results, and sequential commands:
+The separate `testdata/rule-parser-eval.jsonl` corpus protects richer deterministic behavior, including contextual brightness percentages, inferred power-on, styled colors, white temperatures, minute durations, current-state-relative changes, per-device group results, and sequential commands:
 
 ```sh
 go run ./cmd/lifx-command-engine-eval \

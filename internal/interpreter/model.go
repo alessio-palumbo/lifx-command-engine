@@ -96,12 +96,49 @@ func validateModelPlan(plan *schema.CommandPlan, snapshot schema.DeviceSnapshot)
 			target.Serial, target.Label, target.Group, target.Location = strings.ToLower(d.Serial), d.Label, d.Group, d.Location
 		}
 	}
+	plan.Commands = inferModelPower(plan.Commands, devices)
 	if plan.Commands == nil {
 		plan.Commands = []schema.CommandIntent{}
 	}
 	// Model-generated plans always require a host preview/confirmation.
 	plan.NeedsConfirmation = true
 	return nil
+}
+
+func inferModelPower(commands []schema.CommandIntent, devices map[string]schema.SnapshotDevice) []schema.CommandIntent {
+	result := make([]schema.CommandIntent, 0, len(commands))
+	for _, command := range commands {
+		if command.Action.Power != nil || !visualAction(command.Action) {
+			result = append(result, command)
+			continue
+		}
+		var onTargets, offTargets []schema.TargetRef
+		for _, target := range command.Targets {
+			device := devices[strings.ToLower(target.Serial)]
+			if device.CurrentState != nil && device.CurrentState.Power != nil && *device.CurrentState.Power {
+				onTargets = append(onTargets, target)
+			} else {
+				offTargets = append(offTargets, target)
+			}
+		}
+		if len(offTargets) > 0 {
+			offCommand := command
+			offCommand.Targets = offTargets
+			power := true
+			offCommand.Action.Power = &power
+			result = append(result, offCommand)
+		}
+		if len(onTargets) > 0 {
+			onCommand := command
+			onCommand.Targets = onTargets
+			result = append(result, onCommand)
+		}
+	}
+	return result
+}
+
+func visualAction(action schema.Action) bool {
+	return action.Hue != nil || action.Saturation != nil || action.Brightness != nil || action.Kelvin != nil
 }
 
 func emptyAction(a schema.Action) bool {

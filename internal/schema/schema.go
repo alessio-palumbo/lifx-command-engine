@@ -24,8 +24,9 @@ type SnapshotDevice struct {
 	CurrentState *DeviceState `json:"current_state,omitempty"`
 }
 
-// DeviceState is an optional point-in-time state used to resolve relative
-// commands. Hosts should omit unknown fields rather than substituting zero.
+// DeviceState is an optional point-in-time state used to resolve commands.
+// Hosts should omit unknown color fields rather than substituting zero. Power
+// follows lifxlan-go semantics: nil and false both mean powered off.
 type DeviceState struct {
 	Power      *bool    `json:"power,omitempty"`
 	Hue        *float64 `json:"hue,omitempty"`
