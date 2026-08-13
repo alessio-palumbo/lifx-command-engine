@@ -24,14 +24,6 @@ func Score(text string, commands []schema.CommandIntent, ambiguous bool) (float6
 		score -= 0.08
 		reasons = append(reasons, "multiple commands parsed")
 	}
-	targets := 0
-	for _, c := range commands {
-		targets += len(c.Targets)
-	}
-	if targets > len(commands) {
-		score -= 0.08
-		reasons = append(reasons, "command affects multiple devices")
-	}
 	normalized := strings.ToLower(text)
 	if unsupportedStyleWords.MatchString(normalized) {
 		score -= 0.35

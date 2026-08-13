@@ -7,6 +7,8 @@ import (
 
 func TestScore(t *testing.T) {
 	command := schema.CommandIntent{Targets: []schema.TargetRef{{Serial: "d073d5000001"}}, Action: schema.Action{Power: ptr(true)}}
+	multiTarget := command
+	multiTarget.Targets = append(multiTarget.Targets, schema.TargetRef{Serial: "d073d5000002"})
 	tests := []struct {
 		name, text string
 		commands   []schema.CommandIntent
@@ -15,11 +17,13 @@ func TestScore(t *testing.T) {
 		max        float64
 	}{
 		{"exact", "desk on", []schema.CommandIntent{command}, false, "high", 1},
+		{"exact multi target", "office off", []schema.CommandIntent{multiTarget}, false, "high", 1},
 		{"style", "make desk cozy and on", []schema.CommandIntent{command}, false, "medium", .7},
 		{"supported white", "desk warm white at 35%", []schema.CommandIntent{command}, false, "high", 1},
 		{"random", "desk random", []schema.CommandIntent{command}, false, "medium", .8},
 		{"none", "do something", nil, false, "low", .2},
 		{"ambiguous", "lamp on", []schema.CommandIntent{command}, true, "medium", .8},
+		{"multiple commands", "desk on then shelf off", []schema.CommandIntent{command, command}, false, "high", .9},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

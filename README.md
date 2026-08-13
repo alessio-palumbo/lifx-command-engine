@@ -61,6 +61,8 @@ Errors have a stable shape: `{"id":...,"error":{"code":"invalid_params","message
 
 A client should construct `DeviceSnapshot` from its own state, send `interpret`, inspect confidence and commands, present a preview/confirmation when appropriate, and only then translate the semantic actions into its own LIFX transport calls.
 
+Interpretation confidence measures how clearly text resolved into a plan, not how consequential execution may be. An exact device, group, location, or `all` selector therefore receives no penalty solely for resolving to multiple devices. Hosts should apply their own scope and safety policy—for example, Hikari may still confirm `turn off all` even when the engine reports a high-confidence interpretation. The engine reserves `needs_confirmation` for interpretation uncertainty such as ambiguous labels, multiple parsed commands, nondeterministic actions, unsupported style language, and model-generated plans.
+
 ### Go sidecar client
 
 The public `client` package owns sidecar startup, JSONL framing, concurrent request correlation, context cancellation, crash detection, and clean shutdown. Its DTOs mirror protocol version 1 without exposing internal engine packages:
