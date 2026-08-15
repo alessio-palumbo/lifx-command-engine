@@ -38,6 +38,14 @@ jobs:
           go mod tidy
           git diff --exit-code -- go.mod go.sum
 
+      - name: Check shell script syntax
+        shell: bash
+        run: |
+          bash -n scripts/download-whisper-model.sh
+          bash -n scripts/evaluate-whisper-models.sh
+          bash -n scripts/package-release.sh
+          sh -n scripts/test-voice-command.sh
+
       - name: Vet
         run: go vet ./...
 
