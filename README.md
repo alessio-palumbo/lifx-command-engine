@@ -274,7 +274,77 @@ The engine does not download whisper.cpp or model weights. When configured, `cap
 {"id":"speech-1","method":"transcribe","params":{"audio_path":"/path/to/command.wav","language":"en"}}
 ```
 
-The versioned result contains normalized text, detected language, and timestamped segments. Audio paths must resolve to regular files. The executable is invoked directly without a shell, JSON is read from an isolated temporary output directory with a size bound, cancellation terminates the child process, and device interpretation remains a separate `interpret` request so hosts can preview each stage independently. Extra whisper.cpp arguments can be supplied with repeatable `-whisper-arg value` flags; for example, use `-whisper-arg=-ng` when whisper.cpp must run without a GPU backend.
+The versioned result contains normalized text, detected language, and timestamped segments. Audio paths must resolve to regular files. The executable is invoked directly without a shell, JSON is read from an isolated temporary output directory with a size bound, cancellation terminates the child process, and device interpretation remains a separate `interpret` request so hosts can preview each stage independently.
+
+### Model setup and selection
+
+Model installation is explicit and never occurs during a build, test, or normal engine startup. With a local whisper.cpp checkout, use its official downloader through the repository helper:
+
+```sh
+# Defaults to base.en.
+./scripts/download-whisper-model.sh
+
+# Other supported comparison candidates.
+./scripts/download-whisper-model.sh tiny.en
+./scripts/download-whisper-model.sh small.en
+./scripts/download-whisper-model.sh small
+
+# Override both the checkout and model destination.
+WHISPER_CPP_DIR=/path/to/whisper.cpp \
+WHISPER_MODELS_DIR=/path/to/models \
+  ./scripts/download-whisper-model.sh base.en
+```
+
+The practical choice depends on the microphone, hardware, accent, background noise, and real device names, so evaluate on the target system:
+
+- `tiny.en` is the fastest and smallest English baseline, but is generally the most error-prone.
+- `base.en` is the recommended initial voice-build candidate, balancing latency and short-command accuracy.
+- `small.en` is the primary higher-accuracy English comparison, with greater memory use and latency.
+- `small` is multilingual and useful when commands may not be English or when experimenting with language detection or translation.
+
+Neither the helper nor release archives redistribute whisper.cpp or its models. Their upstream licenses and terms continue to apply.
+
+### Runtime arguments
+
+Extra whisper.cpp arguments can be supplied with repeatable `-whisper-arg` flags. Use an equals sign when a value begins with a dash:
+
+```sh
+go run ./cmd/lifx-command-engine \
+  -whisper-command /path/to/whisper-cli \
+  -whisper-model /path/to/ggml-base.en.bin \
+  -whisper-arg=-ng \
+  -whisper-arg=--prompt \
+  -whisper-arg="LIFX names: TV, Desk, Kitchen, Moon, Wall Tiles"
+```
+
+Here `-ng` disables GPU use and `--prompt` gives Whisper spelling/context hints for unusual LIFX labels. The engine owns arguments needed for its output contract, including the audio path, JSON output, and language. Set the input language using the request's `"language":"en"` property rather than passing `--language en` through `-whisper-arg`; this avoids conflicting command-line values. Omit the request language or use `"auto"` for detection when evaluating multilingual input.
+
+Hikari's optional `HIKARI_WHISPER_ARGS` setting is host-side configuration: Hikari translates its values into repeated sidecar `-whisper-arg` arguments. It should be used for options such as `-ng` and `--prompt`, while the transcribe request carries the language.
+
+### Voice evaluation
+
+[`testdata/voice/phrases.txt`](testdata/voice/phrases.txt) provides a starter set of short LIFX phrases. Record the phrases as mono 16 kHz WAV files, copy [`testdata/voice/manifest.example.jsonl`](testdata/voice/manifest.example.jsonl), and update each `audio_path` to its recording. Relative paths are resolved from the manifest directory.
+
+Compare the same recordings across models with:
+
+```sh
+./scripts/evaluate-whisper-models.sh \
+  --manifest /path/to/voice-corpus/manifest.jsonl \
+  --model tiny.en \
+  --model base.en \
+  --model small.en \
+  --whisper-arg=-ng > /private/tmp/whisper-results.jsonl
+
+jq . /private/tmp/whisper-results.jsonl
+```
+
+Each JSONL result includes the model, audio path, expected text, transcript, and a case/punctuation-insensitive `normalized_match`, or a structured runtime/setup error. This evaluates transcription only and never constructs or executes a device command. A correctly transcribed phrase may still use an action that the deterministic command parser does not support; assess `transcribe` and `interpret` separately when diagnosing failures.
+
+The starter names are deliberately generic. Add recordings containing actual device labels, group names, and location names from the intended installation, especially easily confused names and names with unusual spelling. Do not put device serials into speech samples: those belong to the host-provided snapshot.
+
+The evaluator uses the sibling whisper.cpp checkout and its `models` directory by default. Override these with `WHISPER_CPP_DIR`, `WHISPER_MODELS_DIR`, or `WHISPER_COMMAND`. Pass an explicit `.bin` path to `--model` when a model is stored elsewhere.
+
+### Live voice smoke test
 
 For a microphone-to-command-plan smoke test, install SoX and jq, then run:
 
