@@ -1,0 +1,9 @@
+{"audio_path":"audio/turn-tv-off.wav","expected":"turn tv off"}
+{"audio_path":"audio/set-tv-red.wav","expected":"set tv red"}
+{"audio_path":"audio/set-tv-warm-white.wav","expected":"set tv warm white"}
+{"audio_path":"audio/desk-on.wav","expected":"desk on"}
+{"audio_path":"audio/make-desk-30-percent.wav","expected":"make desk 30 percent"}
+{"audio_path":"audio/set-kitchen-blue.wav","expected":"set kitchen blue"}
+{"audio_path":"audio/turn-all-lights-off.wav","expected":"turn all lights off"}
+{"audio_path":"audio/make-moon-brighter.wav","expected":"make moon brighter"}
+{"audio_path":"audio/set-wall-tiles-rainbow.wav","expected":"set wall tiles rainbow"}

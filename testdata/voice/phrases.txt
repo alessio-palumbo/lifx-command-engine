@@ -1,0 +1,9 @@
+turn tv off
+set tv red
+set tv warm white
+desk on
+make desk 30 percent
+set kitchen blue
+turn all lights off
+make moon brighter
+set wall tiles rainbow
