@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 
 	"github.com/alessio-palumbo/lifx-command-engine/internal/appconfig"
 	"github.com/alessio-palumbo/lifx-command-engine/internal/interpreter"
@@ -64,7 +65,23 @@ func runServe(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	}
 	var transcriber speech.Transcriber
 	if options.whisper.Command != "" {
-		transcriber = whispercpp.Transcriber{Command: options.whisper.Command, ModelPath: options.whisper.ModelPath, Args: options.whisper.Args}
+		if options.whisper.Persistent {
+			persistent, err := whispercpp.NewPersistentTranscriber(options.whisper.Command, options.whisper.ModelPath, options.whisper.Args)
+			if err != nil {
+				return err
+			}
+			startupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			err = persistent.Start(startupCtx)
+			cancel()
+			if err != nil {
+				_ = persistent.Close()
+				return err
+			}
+			defer persistent.Close()
+			transcriber = persistent
+		} else {
+			transcriber = whispercpp.Transcriber{Command: options.whisper.Command, ModelPath: options.whisper.ModelPath, Args: options.whisper.Args}
+		}
 		capabilities.Methods = append(capabilities.Methods, "transcribe")
 		capabilities.Transcription = true
 		capabilities.TranscriptionSchema = "1"
@@ -88,6 +105,7 @@ func parseRuntimeOptions(name string, args []string, stderr io.Writer) (runtimeO
 	set.Var(&modelArgs, "model-arg", "argument for model command (repeatable)")
 	whisperCommand := set.String("whisper-command", "", "optional whisper.cpp CLI executable")
 	whisperModel := set.String("whisper-model", "", "local whisper.cpp model path")
+	whisperPersistent := set.Bool("whisper-persistent", false, "keep a local whisper-server and model loaded")
 	var whisperArgs stringList
 	set.Var(&whisperArgs, "whisper-arg", "argument placed before managed whisper.cpp arguments (repeatable)")
 	if err := set.Parse(args); err != nil {
@@ -122,6 +140,9 @@ func parseRuntimeOptions(name string, args []string, stderr io.Writer) (runtimeO
 	if visited["whisper-model"] {
 		config.Whisper.ModelPath = *whisperModel
 	}
+	if visited["whisper-persistent"] {
+		config.Whisper.Persistent = *whisperPersistent
+	}
 	if visited["whisper-arg"] {
 		config.Whisper.Args = whisperArgs
 	}
@@ -134,6 +155,14 @@ func (o runtimeOptions) validate() error {
 	}
 	if (o.whisper.Command == "") != (o.whisper.ModelPath == "") {
 		return fmt.Errorf("whisper command and model path must be set together")
+	}
+	if o.whisper.Persistent {
+		if o.whisper.Command == "" {
+			return fmt.Errorf("whisper persistence requires a command and model path")
+		}
+		if err := whispercpp.ValidatePersistentArgs(o.whisper.Args); err != nil {
+			return err
+		}
 	}
 	return nil
 }

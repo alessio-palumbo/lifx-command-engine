@@ -24,10 +24,11 @@ func runDoctor(args []string, stdout, stderr io.Writer) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	report := diagnostics.Run(ctx, diagnostics.Runtime{
-		ModelCommand:   options.model.Command,
-		ModelArgs:      options.model.Args,
-		WhisperCommand: options.whisper.Command,
-		WhisperModel:   options.whisper.ModelPath,
+		ModelCommand:      options.model.Command,
+		ModelArgs:         options.model.Args,
+		WhisperCommand:    options.whisper.Command,
+		WhisperModel:      options.whisper.ModelPath,
+		WhisperPersistent: options.whisper.Persistent,
 	})
 	if err := writeJSON(stdout, report); err != nil {
 		return err

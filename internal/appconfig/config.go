@@ -24,9 +24,10 @@ type RuntimeConfig struct {
 }
 
 type WhisperConfig struct {
-	Command   string   `json:"command,omitempty"`
-	ModelPath string   `json:"model_path,omitempty"`
-	Args      []string `json:"args,omitempty"`
+	Command    string   `json:"command,omitempty"`
+	ModelPath  string   `json:"model_path,omitempty"`
+	Args       []string `json:"args,omitempty"`
+	Persistent bool     `json:"persistent,omitempty"`
 }
 
 func LoadFile(path string) (Config, error) {
@@ -61,6 +62,9 @@ func Decode(r io.Reader) (Config, error) {
 	}
 	if (config.Whisper.Command == "") != (config.Whisper.ModelPath == "") {
 		return Config{}, fmt.Errorf("whisper.command and whisper.model_path must be set together")
+	}
+	if config.Whisper.Persistent && config.Whisper.Command == "" {
+		return Config{}, fmt.Errorf("whisper.persistent requires whisper.command and whisper.model_path")
 	}
 	if config.Model.Persistent && config.Model.Command == "" {
 		return Config{}, fmt.Errorf("model.persistent requires model.command")

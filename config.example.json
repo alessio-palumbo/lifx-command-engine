@@ -10,8 +10,9 @@
     "persistent": true
   },
   "whisper": {
-    "command": "/path/to/whisper-cli",
+    "command": "/path/to/whisper-server",
     "model_path": "/path/to/ggml-small.bin",
-    "args": []
+    "args": [],
+    "persistent": true
   }
 }

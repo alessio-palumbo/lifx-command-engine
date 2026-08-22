@@ -30,10 +30,11 @@ type Report struct {
 }
 
 type Runtime struct {
-	ModelCommand   string
-	ModelArgs      []string
-	WhisperCommand string
-	WhisperModel   string
+	ModelCommand      string
+	ModelArgs         []string
+	WhisperCommand    string
+	WhisperModel      string
+	WhisperPersistent bool
 }
 
 func Run(ctx context.Context, runtime Runtime) Report {
@@ -52,6 +53,11 @@ func Run(ctx context.Context, runtime Runtime) Report {
 	} else {
 		checks = append(checks, checkExecutable("whisper_command", runtime.WhisperCommand))
 		checks = append(checks, checkRegularFile("whisper_model", runtime.WhisperModel))
+		mode := "whisper-cli per-request runtime configured"
+		if runtime.WhisperPersistent {
+			mode = "persistent whisper-server runtime configured"
+		}
+		checks = append(checks, Check{Name: "whisper_mode", Status: Pass, Message: mode})
 	}
 	status := Pass
 	for _, check := range checks {

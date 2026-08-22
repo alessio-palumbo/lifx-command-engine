@@ -40,6 +40,24 @@ func TestConfigEnablesWhisperCapability(t *testing.T) {
 	}
 }
 
+func TestRuntimeOptionsPreserveCLIWhisperAndValidatePersistentArgs(t *testing.T) {
+	var stderr bytes.Buffer
+	options, err := parseRuntimeOptions("test", []string{"-whisper-command", "whisper-cli", "-whisper-model", "model.bin"}, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.whisper.Persistent || options.whisper.Command != "whisper-cli" {
+		t.Fatalf("options = %#v", options.whisper)
+	}
+	options, err = parseRuntimeOptions("test", []string{"-whisper-command", "whisper-server", "-whisper-model", "model.bin", "-whisper-persistent", "-whisper-arg=--host=0.0.0.0"}, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := options.validate(); err == nil || !strings.Contains(err.Error(), "--host") {
+		t.Fatalf("validate error = %v", err)
+	}
+}
+
 func TestModelsList(t *testing.T) {
 	var output, stderr bytes.Buffer
 	if err := run([]string{"models", "list"}, strings.NewReader(""), &output, &stderr); err != nil {
