@@ -24,15 +24,8 @@ type Transcriber struct {
 }
 
 func (t Transcriber) Transcribe(ctx context.Context, input schema.TranscribeInput) (schema.TranscribeResult, error) {
-	if strings.TrimSpace(input.AudioPath) == "" {
-		return schema.TranscribeResult{}, invalid("audio_path must not be empty")
-	}
-	info, err := os.Stat(input.AudioPath)
-	if err != nil {
-		return schema.TranscribeResult{}, &speech.InvalidInputError{Err: fmt.Errorf("audio_path: %w", err)}
-	}
-	if !info.Mode().IsRegular() {
-		return schema.TranscribeResult{}, invalid("audio_path must be a regular file")
+	if err := validateAudioPath(input.AudioPath); err != nil {
+		return schema.TranscribeResult{}, err
 	}
 	if t.Command == "" || t.ModelPath == "" {
 		return schema.TranscribeResult{}, &speech.RuntimeError{Err: fmt.Errorf("whisper.cpp command and model must be configured")}
