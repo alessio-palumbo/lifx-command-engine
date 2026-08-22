@@ -139,7 +139,7 @@ go run ./cmd/lifx-command-engine serve -config /path/to/config.json
 
 Paths are used exactly as written, which keeps configuration behavior independent of the current working directory. Explicit runtime flags override their corresponding configuration fields; repeatable `-model-arg` or `-whisper-arg` flags replace that argument list when supplied.
 
-The read-only `doctor` command checks the deterministic interpreter, configured executables, FunctionGemma model directory, Python `torch`/`transformers` imports, whisper.cpp model file, and configuration consistency. Optional unconfigured runtimes are warnings, while broken configured runtimes produce a failing exit status:
+The read-only `doctor` command checks the deterministic interpreter, configured executables, FunctionGemma model directory, Python `torch`/`transformers` imports, whisper.cpp model file and selected CLI/server mode, and configuration consistency. It does not load a Whisper model or start whisper-server. Optional unconfigured runtimes are warnings, while broken configured runtimes produce a failing exit status:
 
 ```sh
 go run ./cmd/lifx-command-engine doctor -config /path/to/config.json
@@ -169,7 +169,7 @@ By default KaggleHub uses its own cache. Add `-output /path/to/models` for an ex
 ## Future milestones
 
 - Add domain fine-tuning/export workflows; the Transformers FunctionGemma runtime and evaluation boundary are available.
-- Add streaming transcription and long-lived whisper.cpp runtime support; audio-file transcription is now available.
+- Add streaming transcription; persistent and per-request audio-file transcription are available.
 - Add explicit model download, cache, version, and integrity management.
 - Add FunctionGemma training, evaluation, and export commands.
 - Consider an optional local HTTP transport without replacing JSONL.
@@ -275,6 +275,48 @@ The engine does not download whisper.cpp or model weights. When configured, `cap
 ```
 
 The versioned result contains normalized text, detected language, and timestamped segments. Audio paths must resolve to regular files. The executable is invoked directly without a shell, JSON is read from an isolated temporary output directory with a size bound, cancellation terminates the child process, and device interpretation remains a separate `interpret` request so hosts can preview each stage independently.
+
+### Persistent whisper-server mode
+
+The default mode above starts `whisper-cli` once per request. To keep a model loaded between requests, explicitly configure `whisper-server` instead:
+
+```sh
+go run ./cmd/lifx-command-engine \
+  -whisper-command /path/to/whisper-server \
+  -whisper-model /path/to/ggml-tiny.en.bin \
+  -whisper-persistent \
+  -whisper-arg=-bo \
+  -whisper-arg=1 \
+  -whisper-arg=-bs \
+  -whisper-arg=1 \
+  -whisper-arg=-nf \
+  -whisper-arg=-ac \
+  -whisper-arg=768
+```
+
+Equivalent configuration:
+
+```json
+{
+  "schema_version": "1",
+  "whisper": {
+    "command": "/path/to/whisper-server",
+    "model_path": "/path/to/ggml-tiny.en.bin",
+    "persistent": true,
+    "args": ["-bo", "1", "-bs", "1", "-nf", "-ac", "768"]
+  }
+}
+```
+
+Persistent mode loads the model and waits for the inference endpoint before the JSONL service becomes ready, so host startup timeouts must allow for model loading on the target hardware. The engine selects an ephemeral port, binds whisper-server only to `127.0.0.1`, serializes inference requests, and sends `verbose_json` requests to `/inference`. It streams the WAV into the outgoing multipart request rather than first loading the complete file into Go memory; current whisper-server versions may still buffer the upload internally.
+
+If the server crashes, the active transcription fails and is never replayed. The following transcription request makes one bounded startup attempt sequence and then either uses the new process or returns a runtime error. There is no automatic fallback to whisper-cli because `whisper-server` and `whisper-cli` are different executables. Closing the engine, including normal stdin closure, stops and reaps its server process.
+
+Cancelling a transcription closes the local HTTP request immediately. Compatible current whisper-server versions observe that disconnect and abort inference; older or modified builds may continue computation internally. Persistent mode requires a whisper-server compatible with `OPTIONS /inference`, multipart `POST /inference`, request-level `language`, and `response_format=verbose_json`.
+
+The engine manages model, host, port, endpoint, audio file, language, response format and timestamps. Persistent configuration therefore rejects their corresponding command-line flags, including `--model`, `--host`, `--port`, `--request-path`, `--inference-path`, `--convert`, `--language`, `--file`, output flags, and `--no-timestamps`, including `--flag=value` forms. Decoder tuning, thread, prompt and GPU options remain configurable.
+
+Persistent mode preserves the existing `transcribe` request and result schemas and advertises the same transcription capability as CLI mode. It still accepts finalized audio files; microphone streaming, VAD-driven incremental audio and partial transcripts are separate future protocol work.
 
 ### Model setup and selection
 
