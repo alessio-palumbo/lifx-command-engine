@@ -118,6 +118,48 @@ func TestClientRejectsCallsAfterClose(t *testing.T) {
 	}
 }
 
+func TestClientCloseAllowsGracefulSidecarCleanup(t *testing.T) {
+	exitFile := filepath.Join(t.TempDir(), "clean-exit")
+	client, err := New(Config{
+		Path: os.Args[0], Args: []string{"-test.run=TestHelperProcess"},
+		Env:             []string{"LIFX_CLIENT_HELPER=1", "LIFX_CLIENT_HELPER_MODE=normal", "LIFX_CLIENT_HELPER_EXIT_FILE=" + exitFile},
+		ShutdownTimeout: time.Second, Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Health(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(exitFile); err != nil {
+		t.Fatalf("sidecar cleanup marker: %v", err)
+	}
+}
+
+func TestClientCloseForceKillsUnresponsiveSidecarAfterGracePeriod(t *testing.T) {
+	client, err := New(Config{
+		Path: os.Args[0], Args: []string{"-test.run=TestHelperProcess"},
+		Env:             []string{"LIFX_CLIENT_HELPER=1", "LIFX_CLIENT_HELPER_MODE=hang"},
+		ShutdownTimeout: 50 * time.Millisecond, Stderr: &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, _ = client.Health(ctx)
+	started := time.Now()
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if elapsed := time.Since(started); elapsed < 40*time.Millisecond || elapsed > time.Second {
+		t.Fatalf("Close elapsed = %v", elapsed)
+	}
+}
+
 func helperClient(t *testing.T, mode string, restart bool) *Client {
 	t.Helper()
 	client, err := New(Config{
@@ -139,6 +181,9 @@ func TestHelperProcess(t *testing.T) {
 		return
 	}
 	mode := os.Getenv("LIFX_CLIENT_HELPER_MODE")
+	if exitFile := os.Getenv("LIFX_CLIENT_HELPER_EXIT_FILE"); exitFile != "" {
+		defer func() { _ = os.WriteFile(exitFile, []byte("clean"), 0o600) }()
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	encoder := json.NewEncoder(os.Stdout)
 	for scanner.Scan() {

@@ -91,6 +91,8 @@ Typed methods are available for `Health`, `Capabilities`, `Interpret`, and `Tran
 
 When enabled, restart occurs on the next request after a crash. Failed requests are never automatically replayed, avoiding duplicate or stale host actions. Each call accepts a context; cancellation stops waiting and safely discards its eventual response without disrupting other callers. Protocol errors can be inspected with `errors.As(err, *client.APIError)`.
 
+`Client.Close` closes sidecar stdin and waits up to two seconds for a normal exit, allowing the engine to stop persistent model and Whisper children through its deferred cleanup. It force-kills a sidecar that does not exit within that grace period. Set `Config.ShutdownTimeout` when slower hardware needs a different bound.
+
 Run the standalone example against a built sidecar:
 
 ```sh

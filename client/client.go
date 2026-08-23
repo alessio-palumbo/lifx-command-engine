@@ -22,13 +22,14 @@ const (
 var ErrClosed = errors.New("lifx command engine client is closed")
 
 type Config struct {
-	Path           string
-	Args           []string
-	Dir            string
-	Env            []string
-	RestartOnCrash bool
-	StartupTimeout time.Duration
-	Stderr         io.Writer
+	Path            string
+	Args            []string
+	Dir             string
+	Env             []string
+	RestartOnCrash  bool
+	StartupTimeout  time.Duration
+	ShutdownTimeout time.Duration
+	Stderr          io.Writer
 }
 
 type Client struct {
@@ -90,6 +91,9 @@ func New(config Config) (*Client, error) {
 	}
 	if config.StartupTimeout <= 0 {
 		config.StartupTimeout = 5 * time.Second
+	}
+	if config.ShutdownTimeout <= 0 {
+		config.ShutdownTimeout = 2 * time.Second
 	}
 	if config.Stderr == nil {
 		config.Stderr = os.Stderr
@@ -162,7 +166,7 @@ func (c *Client) Close() error {
 	c.process = nil
 	c.failPendingLocked(ErrClosed)
 	c.mu.Unlock()
-	return stop(p)
+	return stop(p, c.config.ShutdownTimeout)
 }
 
 func (c *Client) call(ctx context.Context, method string, params, destination any) error {
@@ -312,14 +316,21 @@ func (c *Client) stopProcess() {
 	p := c.process
 	c.process = nil
 	c.mu.Unlock()
-	_ = stop(p)
+	_ = stop(p, c.config.ShutdownTimeout)
 }
 
-func stop(p *process) error {
+func stop(p *process, gracePeriod time.Duration) error {
 	if p == nil {
 		return nil
 	}
 	_ = p.stdin.Close()
+	timer := time.NewTimer(gracePeriod)
+	defer timer.Stop()
+	select {
+	case <-p.done:
+		return nil
+	case <-timer.C:
+	}
 	if p.cmd.Process != nil {
 		_ = p.cmd.Process.Kill()
 	}
