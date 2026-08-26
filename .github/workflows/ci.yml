@@ -56,6 +56,7 @@ jobs:
         run: |
           go build ./cmd/lifx-command-engine
           go build ./cmd/lifx-command-engine-eval
+          go build ./cmd/lifx-command-engine-stream-probe
 
       - name: Evaluate deterministic parser
         run: go run ./cmd/lifx-command-engine-eval -mode rules -fixtures testdata/rule-parser-eval.jsonl
