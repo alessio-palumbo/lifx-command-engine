@@ -110,7 +110,7 @@ go build ./cmd/lifx-command-engine
 
 Tests require no devices or model downloads. Public wire DTOs live in `internal/schema`; before a separate Go library API is promised, clients should treat the JSON protocol as the stable integration surface.
 
-CI runs on Ubuntu and macOS and verifies module tidiness, vet, race-enabled Go tests, both command builds, the deterministic parser evaluation corpus, and dependency-free FunctionGemma contract tests. It never downloads model weights or optional runtimes.
+CI runs on Ubuntu and macOS and verifies module tidiness, vet, race-enabled Go tests, command builds, the deterministic parser evaluation corpus, and dependency-free FunctionGemma contract tests. It never downloads model weights or optional runtimes.
 
 ## Releases
 
@@ -319,6 +319,36 @@ Cancelling a transcription closes the local HTTP request immediately. Compatible
 The engine manages model, host, port, endpoint, audio file, language, response format and timestamps. Persistent configuration therefore rejects their corresponding command-line flags, including `--model`, `--host`, `--port`, `--request-path`, `--inference-path`, `--convert`, `--language`, `--file`, output flags, and `--no-timestamps`, including `--flag=value` forms. Decoder tuning, thread, prompt and GPU options remain configurable.
 
 Persistent mode preserves the existing `transcribe` request and result schemas and advertises the same transcription capability as CLI mode. It still accepts finalized audio files; microphone streaming, VAD-driven incremental audio and partial transcripts are separate future protocol work.
+
+### Experimental streaming feasibility probe
+
+Stock whisper-server does not expose append-only PCM inference. The upstream `whisper-stream` example instead runs `whisper_full` repeatedly over bounded/overlapping windows and owns microphone capture through SDL. Before adding a public streaming protocol, this repository provides an experimental replay probe to determine whether bounded speculative inference is useful on the target hardware.
+
+The probe replays an existing mono 16-bit PCM WAV at real-time speed, starts at most one bounded-window partial inference at a time, never queues partial jobs, and marks every partial as revisable. At simulated button release it actively cancels an in-flight partial before starting one authoritative transcription over the complete bounded utterance. It never constructs or executes a LIFX command.
+
+Build and run it on the target device:
+
+```sh
+go build -o /private/tmp/lifx-command-engine-stream-probe \
+  ./cmd/lifx-command-engine-stream-probe
+
+/usr/bin/time -v /private/tmp/lifx-command-engine-stream-probe \
+  -audio /path/to/turn-desk-off.wav \
+  -expected "turn desk off" \
+  -whisper-command /path/to/whisper-server \
+  -whisper-model /path/to/ggml-tiny.en.bin \
+  -whisper-arg=-bo -whisper-arg=1 \
+  -whisper-arg=-bs -whisper-arg=1 \
+  -whisper-arg=-nf \
+  -whisper-arg=-ac -whisper-arg=384 \
+  > /private/tmp/stream-probe.json
+```
+
+Defaults are 100 ms capture chunks, a first speculative pass after one second, a 1.5 second minimum interval, a four-second trailing partial window, and a 15-second maximum final utterance. Adjust them with `-chunk`, `-partial-after`, `-partial-interval`, `-partial-window`, and `-max-utterance`.
+
+The JSON report includes revisable partial hypotheses, whether the first partial arrived before release, time to first partial, partial cancellation/preemption time, release-to-final latency, final inference time, total partial inference time, the authoritative transcript, and an optional normalized expected-text match. It intentionally does not expose a stable client protocol.
+
+Compare several representative short commands against persistent finalized-file transcription. A streaming implementation should proceed only if partials arrive before release often enough to improve perceived responsiveness while median release-to-final latency remains approximately within 10% or 250 ms of the finalized-file baseline, command-critical accuracy does not regress, memory remains safe without swapping, and sustained runs do not introduce thermal throttling. On Raspberry Pi, record `vcgencmd measure_temp` and `vcgencmd get_throttled` before and after repeated runs; use `/usr/bin/time -v` for peak resident memory. If the probe fails those criteria, retain finalized-file Whisper and evaluate an ASR runtime designed for genuine streaming.
 
 ### Model setup and selection
 
