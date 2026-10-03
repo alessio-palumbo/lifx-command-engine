@@ -7,6 +7,30 @@ import (
 	"github.com/alessio-palumbo/lifx-command-engine/internal/schema"
 )
 
+func TestRuleConfidenceDoesNotPenalizePowerStatePartitions(t *testing.T) {
+	on, off := true, false
+	snapshot := schema.DeviceSnapshot{Devices: []schema.SnapshotDevice{
+		{Serial: "d073d5000001", Label: "Beam", Group: "TV", HasColor: true, CurrentState: &schema.DeviceState{Power: &on}},
+		{Serial: "d073d5000002", Label: "Neon", Group: "TV", HasColor: true, CurrentState: &schema.DeviceState{Power: &on}},
+		{Serial: "d073d5000003", Label: "T10", Group: "TV", HasColor: true, CurrentState: &schema.DeviceState{Power: &on}},
+		{Serial: "d073d5000004", Label: "Tile", Group: "TV", HasColor: true, CurrentState: &schema.DeviceState{Power: &on}},
+		{Serial: "d073d5000005", Label: "Filo", Group: "TV", CurrentState: &schema.DeviceState{Power: &off}},
+	}}
+	plan, err := (RuleInterpreter{}).Interpret(context.Background(), schema.InterpretInput{Text: "tv blue", Snapshot: snapshot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Confidence != .95 || plan.ConfidenceResult.Level != "high" || plan.NeedsConfirmation || len(plan.Commands) != 2 {
+		t.Fatalf("plan = %#v", plan)
+	}
+	if len(plan.Commands[0].Targets) != 1 || plan.Commands[0].Targets[0].Label != "Filo" || plan.Commands[0].Action.Power == nil || !*plan.Commands[0].Action.Power {
+		t.Fatalf("off-device command = %#v", plan.Commands[0])
+	}
+	if len(plan.Commands[1].Targets) != 4 || plan.Commands[1].Action.Power != nil {
+		t.Fatalf("on-device command = %#v", plan.Commands[1])
+	}
+}
+
 func TestRuleConfidenceUsesRequestedLabelNotSharedHierarchy(t *testing.T) {
 	input := schema.InterpretInput{Text: "turn desk on", Snapshot: schema.DeviceSnapshot{Devices: []schema.SnapshotDevice{
 		{Serial: "d073d5000001", Label: "Desk", Group: "Office", Location: "Home"},
